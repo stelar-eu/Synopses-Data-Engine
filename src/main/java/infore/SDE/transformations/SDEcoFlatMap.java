@@ -19,7 +19,7 @@ import infore.SDE.messages.Datapoint;
 /**
  * The SDEcoFlatMap is used after the connection of the dataStream with the requestStream and after
  * both of them have been keyed by DataSetKey attribute. It handles arriving DataPoints and Requests.
- * We use a CoFlatMap type of operator because we need to have a shared state between the 2 stream.
+ * We use a CoFlatMap type of operator because we need to have a shared state between the 2 streams.
  * The shared state allows both streams to have access to synopses maintenance ArrayLists and perform
  * add or put operations on them.
  */
@@ -85,7 +85,9 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 	@Override
 	public void flatMap2(Request rq, Collector<Estimation> collector) throws Exception {
 
-		System.out.println(rq.toString());
+		System.out.println("[INFO] Will handle request: "+rq.toString());
+
+		//Get the already maintained synopses (regular and continuous) for the given DataSetKey
 		ArrayList<Synopsis>  Synopses =  M_Synopses.get(rq.getKey());
 		ArrayList<ContinuousSynopsis>  C_Synopses =  MC_Synopses.get(rq.getKey());
 
@@ -94,159 +96,159 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 		 * Request ID:4 --> Add synopsis with random partitioning (non continuous)
 		 */
 		if (rq.getRequestID() == 1 || rq.getRequestID() == 4 ) {
-			if(Synopses==null){
+
+				if(Synopses==null){
 				Synopses = new ArrayList<>();
-				C_Synopses = new ArrayList<>();
 			}
 
-			Synopsis sketch = null;
+			Synopsis newSketch = null;
 
 			//Check what type of synopsis the request asks for and create it
 			switch (rq.getSynopsisID()) {
 				// countMin
 				case 1:
 					if (rq.getParam().length > 4) {
-						sketch = new CountMin(rq.getUID(), rq.getParam());
+						newSketch = new CountMin(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new CountMin synopsis [Type ID: "+rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()+"] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for CountMin synopsis, will not add new instance");
 					}
 					//{ "1", "2", "0.0002", "0.99", "4" };
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// BloomFliter
 				case 2:
 					if (rq.getParam().length > 3) {
-						sketch = new Bloomfilter(rq.getUID(), rq.getParam());
+						newSketch = new Bloomfilter(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new BloomFilter synopsis [Type ID: "+rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()+"] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for BloomFilter synopsis, will not add new instance");
 					}
 					//	String[] _tmp = { "1", "1", "100000", "0.0002" };
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
-				// AMS sketch
+				// AMS Sketch
 				case 3:
 					if (rq.getParam().length > 3){
-						sketch = new AMSsynopsis(rq.getUID(), rq.getParam());
+						newSketch = new AMSsynopsis(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new AMSketch synopsis [Type ID: "+rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()+"] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for AMSketch synopsis, will not add new instance");
 					}
 					//	String[] _tmp = { "1", "2", "1000", "10" };
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// DFT
 				case 4:
 					if (rq.getParam().length > 3){
-						sketch = new MultySynopsisDFT(rq.getUID(), rq.getParam());
+						newSketch = new MultySynopsisDFT(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new DFT synopsis [Type ID: "+rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()+"] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for DFT synopsis, will not add new instance");
 					}
 					//String[] _tmp = {"1", "2", "5", "30", "8"};
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				//LSH - undone, replaced with BloomFilter
 				case 5:
-					sketch = new Bloomfilter(rq.getUID(), rq.getParam());
-					Synopses.add(sketch);
+					newSketch = new Bloomfilter(rq.getUID(), rq.getParam());
+					Synopses.add(newSketch);
 
 				break;
 				// lib.Coresets
 				case 6:
 					if (rq.getParam().length > 10 ){
-						sketch = new FinJoinCoresets(rq.getUID(), rq.getParam());
+						newSketch = new FinJoinCoresets(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new Coresets synopsis [Type ID: "+rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()+"] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for Coresets synopsis, will not add new instance");
 					}
 					//	String[] _tmp = { "1","2", "5", "10" };
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// HyperLogLog
 				case 7:
 					if (rq.getParam().length > 2){
-						sketch = new HyperLogLogSynopsis(rq.getUID(), rq.getParam());
+						newSketch = new HyperLogLogSynopsis(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new HyperLogLog synopsis [Type ID: "+rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()+"] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for HyperLogLog synopsis, will not add new instance");
 					}
 					//String[] _tmp = { "1", "1", "0.001" };
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// StickySampling
 				case 8:
 
 					if (rq.getParam().length > 4) {
-						sketch = new StickySamplingSynopsis(rq.getUID(), rq.getParam());
+						newSketch = new StickySamplingSynopsis(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new StickySampling synopsis [Type ID: " + rq.getSynopsisID() + " | StreamID: " + rq.getStreamID() + " | DatasetKey: " + rq.getKey() + "] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for StickySampling synopsis, will not add new instance");
 					}
 					//String[] _tmp = { "1", "2", "0.01", "0.01", "0.0001"};
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// LossyCounting
 				case 9:
 
 					if (rq.getParam().length > 2){
-						sketch = new LossyCountingSynopsis(rq.getUID(), rq.getParam());
+						newSketch = new LossyCountingSynopsis(rq.getUID(), rq.getParam());
 					    System.out.println("[INFO] Maintaining new LossyCounting synopsis [Type ID: " + rq.getSynopsisID() + " | StreamID: " + rq.getStreamID() + " | DatasetKey: " + rq.getKey() + "] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for LossyCounting synopsis, will not add new instance");
 					}
 					//String[] _tmp = { "1", "2", "0.0001" };
 
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// ChainSampler
 				case 10:
 
 					if (rq.getParam().length > 3){
-						sketch = new ChainSamplerSynopsis(rq.getUID(), rq.getParam());
+						newSketch = new ChainSamplerSynopsis(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new ChainSampler synopsis [Type ID: " + rq.getSynopsisID() + " | StreamID: " + rq.getStreamID() + " | DatasetKey: " + rq.getKey() + "] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for ChainSampler synopsis, will not add new instance");
 					}
 					//String[] _tmp = { "2", "2", "1000", "100000" };
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// GKQuantiles
 				case 11:
 
 					if (rq.getParam().length > 3){
-						sketch = new GKsynopsis(rq.getUID(), rq.getParam());
+						newSketch = new GKsynopsis(rq.getUID(), rq.getParam());
 						System.out.println("[INFO] Maintaining new GK synopsis [Type ID: " + rq.getSynopsisID() + " | StreamID: " + rq.getStreamID() + " | DatasetKey: " + rq.getKey() + "] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for GK synopsis, will not add new instance");
 					}
 					//String[] _tmp = { "2", "2", "0.01"};
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// lib.TopK
 				case 13:
 					if (rq.getParam().length > 3){
-						sketch = new SynopsisTopK(rq.getUID(), rq.getParam());
+						newSketch = new SynopsisTopK(rq.getUID(), rq.getParam());
 					    System.out.println("[INFO] Maintaining new Top-K synopsis [Type ID: " + rq.getSynopsisID() + " | StreamID: " + rq.getStreamID() + " | DatasetKey: " + rq.getKey() + "] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for Top-K synopsis, will not add new instance");
 					}
 					//String[] _tmp = { "2", "2", "0.01"};
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				// windowQuantiles
 				case 16:
 					if (rq.getParam().length > 3){
-						sketch = new windowQuantiles(rq.getUID(), rq.getParam());
+						newSketch = new windowQuantiles(rq.getUID(), rq.getParam());
 					    System.out.println("[INFO] Maintaining new WindowQuantiles synopsis [Type ID: " + rq.getSynopsisID() + " | StreamID: " + rq.getStreamID() + " | DatasetKey: " + rq.getKey() + "] upon request: " + rq.getUID());
 					} else{
 						System.out.println("[ERROR] Insufficient parameters for WindowQuantiles synopsis, will not add new instance");
 					}
 					//String[] _tmp = { "2", "2", "0.01"};
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
-				// 6-> dynamic load sketch
+				// 6-> dynamic load newSketch
 				case 25:
 
 					Object instance;
@@ -275,44 +277,46 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 				case 26:
 
 					if (rq.getParam().length > 3)
-						sketch = new FinJoinSynopsis(rq.getUID(), rq.getParam());
+						newSketch = new FinJoinSynopsis(rq.getUID(), rq.getParam());
 					//String[] _tmp = { "0", "0", "10", "100", "8", "3" };
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 
 				break;
 				// COUNT
 				case 27:
 
 					if (rq.getParam().length > 3)
-						sketch = new Counters(rq.getUID(), rq.getParam());
+						newSketch = new Counters(rq.getUID(), rq.getParam());
 					else {
 						String[] _tmp = {"0", "0", "10", "100", "8", "3"};
-						sketch = new Counters(rq.getUID(), _tmp);
+						newSketch = new Counters(rq.getUID(), _tmp);
 					}
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				//window lsh
 				case 28:
 					System.out.println("ADD-> _ " +rq.toString());
 					if (rq.getParam().length > 3)
-						sketch = new WLSHSynopses(rq.getUID(), rq.getParam());
+						newSketch = new WLSHSynopses(rq.getUID(), rq.getParam());
 
-					Synopses.add(sketch);
+					Synopses.add(newSketch);
 				break;
 				//window pastDFT
 				case 29:
 					System.out.println("ADD-> _ " +rq.toString());
 					if (rq.getParam().length > 3)
-						sketch = new PastDFTSynopsis(rq.getUID(), rq.getParam());
-					Synopses.add(sketch);
+						newSketch = new PastDFTSynopsis(rq.getUID(), rq.getParam());
+					Synopses.add(newSketch);
 					break;
 			}
-
 			M_Synopses.put(rq.getKey(),Synopses);
 		}
 
 
-		//Add Continuous Synopsis
+		/**
+		 * Request ID:5 --> Add synopsis with keyed partitioning (continuous)
+		 *
+		 */
 		else if(rq.getRequestID() == 5) {
 			if (C_Synopses == null){
 				C_Synopses = new ArrayList<>();
@@ -358,18 +362,28 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 
 			}
 		}
-		// Estimate - delete
+		/**
+		 * The 'else' clause below handles the following request cases:
+		 *
+		 * Request ID: 2 --> Delete a currently maintained synopsis based on ID
+		 * Request ID: 3 --> Estimate a queryable synopsis
+		 * Request ID: 6 --> Estimate in an advanced way a queryable synopsis
+		 * Request ID: 7 --> Update the state of a maintained synopsis (Not handled everywhere, could take advantage of it)
+		 *
+		 */
 		else {
 			if(Synopses==null){
-				System.out.println("create Synopses first before estimation");
+				System.out.println("No synopsis found for Data Set Key: "+rq.getKey()+" ! Please maintain a synopsis before querying");
 			}else {
 				for (Synopsis syn : Synopses) {
 
 					if (rq.getUID() == syn.getSynopsisID()) {
+
+						//Remove synopsis request handling. Check
 						if (rq.getRequestID() % 10 == 2) {
-							System.out.println("removed");
 							Synopses.remove(syn);
 							M_Synopses.put(rq.getKey(), Synopses);
+							System.out.println("Synopsis of Type "+rq.getSynopsisID()+" with UID: "+rq.getUID()+" for DatasetKey:"+rq.getKey()+" and StreamID: "+rq.getStreamID()+" has been deleted");
 
 						} else if ((rq.getRequestID() % 10 == 3) || (rq.getRequestID() % 10 == 6)) {
 
