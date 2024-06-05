@@ -45,6 +45,9 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 
 		//In case there are Synopses that can accept the node (based on dataSetKey)
 		//add the node to each of them
+
+		// TODO: Here upon a specific criterion, a snapshot of the updated synopsis must be saved into the storage service
+
 		if (Synopses != null) {
 			for (Synopsis ski : Synopses) {
 				ski.add(node.getValues());
@@ -248,7 +251,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 					//String[] _tmp = { "2", "2", "0.01"};
 					Synopses.add(newSketch);
 				break;
-				// 6-> dynamic load newSketch
+				// 25-> dynamic load newSketch
 				case 25:
 
 					Object instance;
@@ -325,6 +328,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 
 			switch (rq.getSynopsisID()) {
 
+				// ContinuousCM
 				case 1:
 					if (rq.getParam().length > 4)
 						sketch = new ContinuousCM(rq.getUID(), rq, rq.getParam());
@@ -379,7 +383,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 
 					if (rq.getUID() == syn.getSynopsisID()) {
 
-						//Remove synopsis request handling. Check
+						//Remove synopsis request handling. Check first
 						if (rq.getRequestID() % 10 == 2) {
 							Synopses.remove(syn);
 							M_Synopses.put(rq.getKey(), Synopses);
