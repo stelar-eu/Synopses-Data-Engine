@@ -14,36 +14,67 @@ import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
 
 import java.util.*;
-
+@SuppressWarnings("all")
 public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Datapoint> {
 
     private static final long serialVersionUID = 1L;
     // SourceID (1-5), StreamID(1-10000), Keys(1-1000),
 
-
-
     //UID, parallelism, index,
     //Parallelism //Number, index
+
     /**
      * A map that holds the parallelism configuration for keyed streams,
      * mapping the number of parallel instances to a tuple containing
-     * the count and index.
+     * the count and index for the keyed parallelism scheme.
+     *
+     * The HashMap has the form of:
+     *
+     *    Key:  NumOfParallelism --> Tuple2< Number, Index > (int,int)
+     *
      */
     private HashMap<Integer, Tuple2<Integer, Integer>> KeyedParallelism = new HashMap<>();
 
 
     //Parallelism //Number, index
+    /**
+     * A map that holds the parallelism configuration for keyed streams,
+     * mapping the number of parallel instances to a tuple containing
+     * the count and index for the random parallelism scheme.
+     *
+     * The HashMap has the form of:
+     *
+     *    Key:  NumOfParallelism --> Tuple2< Number, Index > (int,int)
+     */
     private HashMap<Integer, Tuple2<Integer, Integer>> RandomParallelism = new HashMap<>();
+
+
     //StreamID //Parallelism, KEYs
+    /**
+     * A map that hold the parallelism keys for a given data stream. It maps a single
+     * streamID to a set of Tuple2s each consisting of degree of parallelism and key (String).
+     *
+     * The HashMap has the form of:
+     *
+     *    Key:  StreamID --> ArrayList< Tuple2< Integer, String > >
+     */
     private HashMap<String, ArrayList<Tuple2<Integer, String>>> KeysPerStream = new HashMap<>();
 
 
+    /**
+     * Is this actually populated anywhere?
+     */
     private HashMap<String, Request> Synopses = new HashMap<>();
+
+
 
     private HashMap<String, RadiusSketch> MapToGrid = new HashMap<>();
 
-
+    /**
+     * Used for keeping track of currently maintained synopses (?)
+     */
     private transient ValueState<Tuple1<String>> rs;
+
     private int pId;
 
     /**
@@ -128,8 +159,8 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
         // generate new dataset keys ready upon which the incoming data tuples will be routed
         if (request.getRequestID() == 1 || request.getRequestID() == 4) {
 
+            // Only allocate partitions when desired num of parallelism is greater than one
             if (request.getNoOfP() > 1) {
-
                 // Add synopsis with Keyed Partitioning (either Regular or Continuous)
                 // The following code snippet generates the keys for the corresponding
                 // partitions based on the desired number of parallelism
@@ -146,6 +177,7 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
                                 i = 0;
                         }
                     } else {
+                        // Update tha parallelism keys by incrementing by 1 the tuple
                         Tuple2<Integer, Integer> t = KeyedParallelism.get(request.getNoOfP());
                         t.f0 += 1;
                         KeyedParallelism.put(request.getNoOfP(), t);
@@ -166,7 +198,7 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
 
             }
         // When receiving a Remove request
-        // generate new dataset keys ready upon which the incoming data tuples will be routed
+
         } else if (request.getRequestID() == 2) {
 
             Request re = Synopses.remove("" + request.getUID());
@@ -207,7 +239,7 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
                     }
 
                     Tuple1<String> tmp2 = new Tuple1<>(tmp);
-                    // rs.update(tmp2);
+                     // rs.update(tmp2);
 
 
                 } else {
@@ -220,9 +252,9 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
     public void open(Configuration config) {
 
         TypeInformation<Tuple1<String>> typeInformation = TypeInformation.of(new TypeHint<Tuple1<String>>() {});
-
         ValueStateDescriptor descriptor = new ValueStateDescriptor("Synopses", typeInformation);
         descriptor.setQueryable("getSynopses");
+
         rs = getRuntimeContext().getState(descriptor);
         pId = getRuntimeContext().getIndexOfThisSubtask();
 
