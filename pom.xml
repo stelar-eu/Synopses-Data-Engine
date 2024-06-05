@@ -87,6 +87,11 @@
 			<artifactId>flink-core</artifactId>
 			<version>${flink.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-walkthrough-common</artifactId>
+			<version>1.19.0</version>
+		</dependency>
 
 
 		<!-- Yahoooo dependencies -->
@@ -97,7 +102,6 @@
 			<version>0.13.4</version>
 		</dependency>
 
-		<!-- Add this dependencies -->
 		<dependency>
 			<groupId>com.clearspring.analytics</groupId>
 			<artifactId>stream</artifactId>
@@ -112,6 +116,18 @@
 			<version>1.9.3</version>
 		</dependency>
 
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-csv</artifactId>
+			<version>1.8</version>
+		</dependency>
+
+		<!-- Mongo Client Dependency -->
+		<dependency>
+			<groupId>org.mongodb</groupId>
+			<artifactId>mongodb-driver-sync</artifactId>
+			<version>4.3.4</version>
+		</dependency>
 
 
 
@@ -149,8 +165,6 @@
 			<artifactId>flink-queryable-state-runtime_2.11</artifactId>
 			<version>${flink.version}</version>
 		</dependency>
-
-
 
 		<!-- Add logging framework, to produce console output when running in the
 			IDE. -->
