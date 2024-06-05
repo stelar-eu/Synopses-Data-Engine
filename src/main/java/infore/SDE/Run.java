@@ -94,7 +94,8 @@ public class Run {
 				}).name("REQUEST_SOURCE_STREAM").keyBy((KeySelector<Request, String>) Request::getKey);
 
 
-		// Direct the request stream through a router resulting
+		// Direct the request stream through the RqRouterFlatMap in order to generate SUB-Requests based on
+		// number of parallelism 
 		DataStream<Request> requestRouter = requestStream.flatMap(new RqRouterFlatMap()).name("REQUEST_ROUTER");
 
 		DataStream<Datapoint> dataRouter = dataStream.connect(requestStream)
@@ -152,7 +153,7 @@ public class Run {
 		//UR.addSink(pRequest.getProducer());
 
 		finalStream.addSink(kp.getProducer());
-		env.execute("Streaming SDE");
+		env.execute("SynopsisDataEngine");
 
 	}
 
