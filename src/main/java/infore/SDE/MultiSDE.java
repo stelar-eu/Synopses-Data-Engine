@@ -20,7 +20,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import infore.SDE.transformations.ReduceFlatMap;
 import infore.SDE.transformations.RqRouterFlatMap;
 import infore.SDE.transformations.SDEcoFlatMap;
-import infore.SDE.transformations.dataRouterCoFlatMap;
+import infore.SDE.transformations.DataRouterCoFlatMap;
 import infore.SDE.messages.Estimation;
 import infore.SDE.messages.Request;
 
@@ -130,7 +130,7 @@ public class MultiSDE {
 				.flatMap(new RqRouterFlatMap()).keyBy((KeySelector<Request, String>) r -> r.getKey());
 
 		DataStream<Datapoint> DataStream = dataStream.connect(RQ_Stream)
-				.flatMap(new dataRouterCoFlatMap()).keyBy((KeySelector<Datapoint, String>) r -> r.getKey());
+				.flatMap(new DataRouterCoFlatMap()).keyBy((KeySelector<Datapoint, String>) r -> r.getKey());
 
 		DataStream<Estimation> estimationStream = DataStream.connect(SynopsisRequests)
 				.flatMap(new SDEcoFlatMap()).keyBy((KeySelector<Estimation, String>) r -> r.getKey());
@@ -165,7 +165,6 @@ public class MultiSDE {
 		//DataStream<Tuple2< String, Object>> finalStream = estimationStream.flatMap(new ReduceFlatMap());
 		//finalStream.addSink(kp.getProducer());
 
-		@SuppressWarnings("unused")
 		JobExecutionResult result = env.execute("Streaming Multy SDE");
 }
 
@@ -193,8 +192,7 @@ public class MultiSDE {
 			kafkaUnionTopic = "testUnionTopic2";
 			parallelism = 3;
 			parallelism2 = 3;
-			//kafkaBrokersList = "clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667";
-			kafkaBrokersList = "192.168.1.222:9093";
+			kafkaBrokersList = "192.168.1.104:9093,192.168.1.104:9094";
 			kafkaOutputTopic = "4FINOUT";
 
 		}
