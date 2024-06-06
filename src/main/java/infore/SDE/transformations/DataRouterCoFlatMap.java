@@ -185,7 +185,7 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
                 } else if (request.getRequestID() == 4) {
 
                     if (RandomParallelism.get(request.getNoOfP()) == null) {
-                        //????? IS THIS CORRECT? SHOULDN'T IT BE RandomParallelism HUH?
+                        //Is this correct? Shouldnt it be RandomParallelism?
                         KeyedParallelism.put(request.getNoOfP(), new Tuple2<>(1, 0));
                     } else {
                         Tuple2<Integer, Integer> t = RandomParallelism.get(request.getNoOfP());
