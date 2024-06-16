@@ -3,7 +3,10 @@ package infore.SDE.synopses;
 import infore.SDE.messages.Estimation;
 import infore.SDE.messages.Request;
 
-abstract public class Synopsis {
+import java.io.Serializable;
+
+abstract public class Synopsis implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     protected int SynopsisID;
     protected String keyIndex;

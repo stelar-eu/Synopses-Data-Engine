@@ -6,14 +6,40 @@ import com.fasterxml.jackson.databind.JsonNode;
 import infore.SDE.messages.Estimation;
 import infore.SDE.messages.Request;
 import infore.SDE.synopses.Sketches.CM;
+import java.io.*;
 
-public class CountMin extends Synopsis{
-
+public class CountMin extends Synopsis implements Serializable {
+	private static final long serialVersionUID = 1L;
 	private CM cm;
 	int count = 0;
 	public CountMin(int uid, String[] parameters) {
-     super(uid,parameters[0],parameters[1], parameters[2]);
-	 cm = new CM(Double.parseDouble(parameters[3]),Double.parseDouble(parameters[4]),Integer.parseInt(parameters[5]));
+		super(uid,parameters[0],parameters[1], parameters[2]);
+		cm = new CM(Double.parseDouble(parameters[3]),Double.parseDouble(parameters[4]),Integer.parseInt(parameters[5]));
+	}
+
+	private void writeObject(ObjectOutputStream oos) throws IOException {
+		oos.defaultWriteObject();
+
+		try {
+			// Serialize CM fields
+			byte[] cmBytes = CM.serialize(cm);
+			oos.writeObject(cmBytes);
+		} catch (IOException e) {
+			throw new IOException("Failed to serialize CM", e);
+		}
+	}
+
+	private void readObject(ObjectInputStream ois) throws IOException, ClassNotFoundException {
+		ois.defaultReadObject();
+
+		try {
+			// Read serialized CM bytes from input stream
+			byte[] cmBytes = (byte[]) ois.readObject();
+			// Deserialize CM
+			cm = CM.deserialize(cmBytes);
+		} catch (IOException | ClassNotFoundException e) {
+			throw new IOException("Failed to deserialize CM", e);
+		}
 	}
 	 
 	@Override
@@ -41,7 +67,6 @@ public class CountMin extends Synopsis{
 
 	}
 
-	@SuppressWarnings("deprecation")
 	@Override
 	public Object estimate(Object k)
 	{
@@ -55,6 +80,7 @@ public class CountMin extends Synopsis{
 
 	@Override
 	public Estimation estimate(Request rq) {
+
 
 		if(rq.getRequestID() % 10 == 6){
 
