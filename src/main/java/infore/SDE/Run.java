@@ -15,10 +15,14 @@ import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.collector.selector.OutputSelector;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import infore.SDE.messages.Estimation;
 import infore.SDE.messages.Request;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
+import org.apache.flink.util.Collector;
+import org.apache.flink.util.OutputTag;
 
 
 /**
@@ -98,6 +102,8 @@ public class Run {
 		// number of parallelism 
 		DataStream<Request> requestRouter = requestStream.flatMap(new RqRouterFlatMap()).name("REQUEST_ROUTER");
 
+		// Connect the original request stream with the incoming data stream in order to allocate parallelism settings
+		// for data tuples. The collector for this operation collects only data tuples with updated dataset keys.
 		DataStream<Datapoint> dataRouter = dataStream.connect(requestStream)
 				                                .flatMap(new DataRouterCoFlatMap()).name("DATA_ROUTER")
 												.keyBy((KeySelector<Datapoint, String>) Datapoint::getKey);
@@ -111,31 +117,73 @@ public class Run {
 			private static final long serialVersionUID = 1L;
 			@Override
 			public Iterable<String> select(Estimation value) {
+				// TODO Auto-generated method stub
 				List<String> output = new ArrayList<>();
 				if (value.getNoOfP() == 1) {
 					output.add("single");
 				}
 				else {
-					 output.add("multy");
+					output.add("multy");
 				}
 				return output;
 			}
 		});
-		
+
 		DataStream<Estimation> single = split.select("single");
 		DataStream<Estimation> multy = split.select("multy").keyBy((KeySelector<Estimation, String>) Estimation::getKey);
 		single.addSink(kp.getProducer());
-
 		DataStream<Estimation> partialOutputStream = multy.flatMap(new ReduceFlatMap()).name("REDUCE");
 
 		DataStream<Estimation> finalStream = partialOutputStream.flatMap(new GReduceFlatMap()).setParallelism(1);
-		finalStream.print();
 
+		finalStream.addSink(kp.getProducer());
+		env.execute("Streaming SDE");
+
+
+		/*
+
+
+		// Define the OutputTags to get side outputs multi or single
+		final OutputTag<Estimation> singleOutputTag = new OutputTag<Estimation>("single") {};
+		final OutputTag<Estimation> multiOutputTag = new OutputTag<Estimation>("multi") {};
+
+		// Main processing function for 'splitting'
+		SingleOutputStreamOperator<Estimation> splitStream = estimationStream.process(
+				new ProcessFunction<Estimation, Estimation>() {
+					private static final long serialVersionUID = 1L;
+					@Override
+					public void processElement(Estimation value, Context ctx, Collector<Estimation> out) throws Exception {
+						if (value.getNoOfP() == 1) {
+							ctx.output(singleOutputTag, value);
+						} else {
+							ctx.output(multiOutputTag, value);
+						}
+					}
+				}
+		);
+
+		// Access the side outputs and get single or multiple streams
+		DataStream<Estimation> singleStream = splitStream.getSideOutput(singleOutputTag);
+		DataStream<Estimation> multiStream = splitStream.getSideOutput(multiOutputTag).keyBy((KeySelector<Estimation, String>) Estimation::getKey);
+
+		// Single stream should be output here
+		singleStream.addSink(kp.getProducer());
+
+
+
+		// Processing continuous for multiple parallel estimation streams in order to reduce them into one
+		DataStream<Estimation> partialReducedOutputStream = multiStream.flatMap(new ReduceFlatMap()).name("REDUCE");
+		// The following flatMap is just a 'logic buffer' running in unitary parallelism
+		DataStream<Estimation> finalStream = partialReducedOutputStream.flatMap(new GReduceFlatMap()).setParallelism(1);
+
+		finalStream.addSink(kp.getProducer());
+		*/
+
+		/*
 		SplitStream<Estimation> split_2 = finalStream.split(new OutputSelector<Estimation>() {
 			private static final long serialVersionUID = 1L;
 			@Override
 			public Iterable<String> select(Estimation value) {
-				// TODO Auto-generated method stub
 				List<String> output = new ArrayList<>();
 				if (value.getRequestID() == 7) {
 					output.add("UR");
@@ -151,8 +199,9 @@ public class Run {
 		DataStream<Estimation> E = split_2.select("E");
 		//E.addSink(kp.getProducer());
 		//UR.addSink(pRequest.getProducer());
+		*/
 
-		finalStream.addSink(kp.getProducer());
+
 		env.execute("SynopsisDataEngine");
 
 	}
@@ -171,12 +220,12 @@ public class Run {
 		}else{
 			System.out.println("[INFO] Default parameters");
 			//Default values
-			kafkaDataInputTopic = "data_topic";
+			kafkaDataInputTopic = "6FIN500";
 			kafkaRequestInputTopic = "request_topic";
 			kafkaOutputTopic = "estimation_topic";
 
 			kafkaBrokersList = "192.168.1.104:9093,192.168.1.104:9094";
-			parallelism = 1;
+			parallelism = 4;
 		}
 	}
 }
