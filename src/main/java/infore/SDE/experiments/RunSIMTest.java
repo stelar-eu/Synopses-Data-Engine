@@ -100,7 +100,7 @@ public class RunSIMTest {
 
 
         DataStream<Datapoint> DataStream = dataStream.connect(RQ_Stream)
-                .flatMap(new dataRouterCoFlatMap()).name("DATA_ROUTER")
+                .flatMap(new DataRouterCoFlatMap()).name("DATA_ROUTER")
                 .keyBy((KeySelector<Datapoint, String>) Datapoint::getKey);
 
 

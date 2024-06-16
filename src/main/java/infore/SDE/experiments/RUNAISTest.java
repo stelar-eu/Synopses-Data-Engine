@@ -25,10 +25,11 @@ public class RUNAISTest {
     private static String kafkaDataInputTopic;
     private static String kafkaRequestInputTopic;
     private static String kafkaBrokersList;
-    private static int parallelism;
-    private static int multi;
     private static String kafkaOutputTopic;
-    private static String Source;
+
+    private static String SOURCE;
+    private static int PARALLELISM;
+    private static int MULTI;
 
     /**
      * @param args Program arguments. You have to provide 4 arguments otherwise
@@ -37,7 +38,7 @@ public class RUNAISTest {
      *             <li>args[0]={@link #kafkaDataInputTopic} DEFAULT: "Forex")
      *             <li>args[1]={@link #kafkaRequestInputTopic} DEFAULT: "Requests")
      *             <li>args[2]={@link #kafkaBrokersList} (DEFAULT: "localhost:9092")
-     *             <li>args[3]={@link #parallelism} Job parallelism (DEFAULT: "4")
+     *             <li>args[3]={@link #PARALLELISM} Job parallelism (DEFAULT: "4")
      *             <li>args[4]={@link #kafkaOutputTopic} DEFAULT: "OUT")
      *             "O10")
      *             </ol>
@@ -48,15 +49,16 @@ public class RUNAISTest {
         // Initialize Input Parameters
         initializeParameters(args);
 
-        if(Source.startsWith("auto")) {
+        // Populate Kafka Topics with requests and data prior to StreamEnv setup
+        if(SOURCE.startsWith("auto")) {
             Thread thread1 = new Thread(() -> {
-                (new SendAISTest()).run(kafkaDataInputTopic,kafkaRequestInputTopic,parallelism);
+                (new SendAISTest()).run(kafkaDataInputTopic,kafkaRequestInputTopic, PARALLELISM, kafkaBrokersList);
             });
             thread1.start();
         }
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(parallelism);
+        env.setParallelism(PARALLELISM);
         KafkaStringConsumer kc = new KafkaStringConsumer(kafkaBrokersList, kafkaDataInputTopic, true);
         KafkaStringConsumer requests = new KafkaStringConsumer(kafkaBrokersList, kafkaRequestInputTopic);
         kafkaProducerEstimation kp = new kafkaProducerEstimation(kafkaBrokersList, kafkaOutputTopic);
@@ -100,10 +102,10 @@ public class RUNAISTest {
 
 
         DataStream<Datapoint> DataStream = dataStream.connect(RQ_Stream)
-                .flatMap(new DummydataRouterCoFlatMap(parallelism)).name("DATA_ROUTER")
+                .flatMap(new DummydataRouterCoFlatMap(PARALLELISM)).name("DATA_ROUTER")
                 .keyBy((KeySelector<Datapoint, String>) Datapoint::getKey);
 
-        DataStream<Datapoint> DataStream2 = DataStream.flatMap(new IngestionMultiplierFlatMap(multi));
+        DataStream<Datapoint> DataStream2 = DataStream.flatMap(new IngestionMultiplierFlatMap(MULTI));
 
         DataStream<Estimation> estimationStream = DataStream2.keyBy((KeySelector<Datapoint, String>) Datapoint::getKey)
                 .connect(SynopsisRequests.keyBy((KeySelector<Request, String>) Request::getKey))
@@ -158,7 +160,7 @@ public class RUNAISTest {
         //UR.addSink(pRequest.getProducer());
 
         finalStream.addSink(kp.getProducer()).setParallelism(1);
-        env.execute("Streaming SDE"+parallelism+"_"+multi+"_"+kafkaDataInputTopic);
+        env.execute("Streaming SDE"+ PARALLELISM +"_"+ MULTI +"_"+kafkaDataInputTopic);
 
     }
 
@@ -170,36 +172,35 @@ public class RUNAISTest {
             //User defined program arguments
             kafkaDataInputTopic = args[0];
             kafkaRequestInputTopic = args[1];
-            multi = Integer.parseInt(args[2]);
-            parallelism = Integer.parseInt(args[3]);
-            System.out.println("[INFO] Default values");
-            //Default values
-            //kafkaDataInputTopic = "FAN";
-            Source ="auto";
-            //kafkaRequestInputTopic = "Rq_FAN";
-
-            //parallelism2 = 4;
-            kafkaBrokersList = "clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667";
-            //kafkaBrokersList = "localhost:9092";
-            //kafkaBrokersList = "159.69.32.166:9092";
+            MULTI = Integer.parseInt(args[2]);
+            PARALLELISM = Integer.parseInt(args[3]);
+            SOURCE ="auto";
+            kafkaBrokersList = "192.168.1.104:9093,192.168.1.104:9094";
             kafkaOutputTopic = "AIS_OUT";
+
+            System.out.println("[INFO] SDE-E will execute with the following parameters at parallelism "+ PARALLELISM +":");
+            System.out.println("\tKafka Brokers List: "+kafkaBrokersList);
+            System.out.println("\tKafka Data Input Topic: "+kafkaDataInputTopic);
+            System.out.println("\tKafka Request Input Topic: "+kafkaRequestInputTopic);
+            System.out.println("\tKafka Output Topic: "+kafkaOutputTopic);
 
         }else{
 
             System.out.println("[INFO] Default values");
             //Default values
-            //kafkaDataInputTopic = "FAN";
-            kafkaDataInputTopic = "AIS_DATA_10000";
+            kafkaDataInputTopic = "Dt_AIS";
             kafkaRequestInputTopic = "Rq_AIS";
-            Source ="auto";
-            multi = 10;
-            //kafkaRequestInputTopic = "Rq_FAN";
-            parallelism = 2;
-            //parallelism2 = 4;
-            kafkaBrokersList = "clu02.softnet.tuc.gr:6667,clu03.softnet.tuc.gr:6667,clu04.softnet.tuc.gr:6667,clu06.softnet.tuc.gr:6667";
-            //kafkaBrokersList = "localhost:9092";
-            //kafkaBrokersList = "159.69.32.166:9092";
-            kafkaOutputTopic = "AIS_OUT";
+            SOURCE ="auto";
+            MULTI = 10;
+            PARALLELISM = 1;
+            kafkaBrokersList = "192.168.1.104:9093,192.168.1.104:9094";
+            kafkaOutputTopic = "Estm_AIS";
+            System.out.println("[INFO] SDE-E will execute with the following parameters at parallelism "+ PARALLELISM +":");
+            System.out.println("\tKafka Brokers List: "+kafkaBrokersList);
+            System.out.println("\tKafka Data Input Topic: "+kafkaDataInputTopic);
+            System.out.println("\tKafka Request Input Topic: "+kafkaRequestInputTopic);
+            System.out.println("\tKafka Output Topic: "+kafkaOutputTopic);
+
         }
     }
 }

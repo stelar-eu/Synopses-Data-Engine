@@ -87,7 +87,7 @@ public class RUNRadiusTest {
 
 
         DataStream<Datapoint> DataStream = dataStream.connect(RQ_Stream)
-                .flatMap(new dataRouterCoFlatMap()).setParallelism(1).name("DATA_ROUTER")
+                .flatMap(new DataRouterCoFlatMap()).setParallelism(1).name("DATA_ROUTER")
                 .keyBy((KeySelector<Datapoint, String>) Datapoint::getKey);
 
         //Multiplication IF NEEDED
