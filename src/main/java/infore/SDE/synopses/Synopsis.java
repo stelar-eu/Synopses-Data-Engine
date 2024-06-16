@@ -25,6 +25,10 @@ abstract public class Synopsis {
 
     }
 
+    public Synopsis() {
+
+    }
+
     public abstract void add(Object k);
 
     public abstract Object estimate(Object k);
