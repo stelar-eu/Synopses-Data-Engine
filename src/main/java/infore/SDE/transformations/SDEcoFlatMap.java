@@ -100,7 +100,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 		 */
 		if (rq.getRequestID() == 1 || rq.getRequestID() == 4 ) {
 
-				if(Synopses==null){
+			if(Synopses==null){
 				Synopses = new ArrayList<>();
 			}
 
@@ -372,6 +372,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 		 * Request ID: 2 --> Delete a currently maintained synopsis based on ID
 		 * Request ID: 3 --> Estimate a queryable synopsis
 		 * Request ID: 6 --> Estimate in an advanced way a queryable synopsis
+		 * // TODO Update synopsis state request (e.g. latest v restore, restore to snapshot etc.)
 		 * Request ID: 7 --> Update the state of a maintained synopsis (Not handled everywhere, could take advantage of it)
 		 *
 		 */
@@ -383,7 +384,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 
 					if (rq.getUID() == syn.getSynopsisID()) {
 
-						//Remove synopsis request handling. Check first
+						//Remove synopsis request handling.
 						if (rq.getRequestID() % 10 == 2) {
 							Synopses.remove(syn);
 							M_Synopses.put(rq.getKey(), Synopses);
