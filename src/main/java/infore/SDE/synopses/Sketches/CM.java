@@ -33,7 +33,7 @@ public class CM  implements Serializable{
     double eps;
     double confidence;
 
-    CM() {
+    public CM() {
     }
 
     public CM(int depth, int width, int seed) {
