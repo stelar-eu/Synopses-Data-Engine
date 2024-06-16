@@ -87,6 +87,7 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
     public void flatMap1(Datapoint dataNode, Collector<Datapoint> out) throws Exception {
 
         // Handle the case of RadiusSketch
+        // Why here?
         if (MapToGrid.containsKey(dataNode.getDataSetkey())) {
             RadiusSketch RS = MapToGrid.get(dataNode.getDataSetkey());
             ArrayList<Datapoint> sketches_to_grid = (ArrayList<Datapoint>) RS.estimate(dataNode.getValues());
@@ -197,13 +198,11 @@ public class DataRouterCoFlatMap extends RichCoFlatMapFunction<Datapoint, Reques
                 }
 
             }
-        // When receiving a Remove request
-
+        // Handle remove request. Parallelism settings should be also erased
         } else if (request.getRequestID() == 2) {
 
-            Request re = Synopses.remove("" + request.getUID());
+            Request re = Synopses.remove(request.getUID());
             if (re != null) {
-
                 if (re.getRequestID() == 1) {
                     Tuple2<Integer, Integer> t = KeyedParallelism.get(re.getNoOfP());
                     if (t != null) {
