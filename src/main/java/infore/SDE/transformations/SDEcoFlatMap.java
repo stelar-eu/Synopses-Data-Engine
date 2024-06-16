@@ -6,6 +6,7 @@ import java.net.URLClassLoader;
 import java.util.*;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import infore.SDE.storage.StorageManager;
 import lib.WDFT.controlBucket;
 import lib.WLSH.Bucket;
 import infore.SDE.synopses.*;
@@ -15,6 +16,7 @@ import org.apache.flink.util.Collector;
 import infore.SDE.messages.Estimation;
 import infore.SDE.messages.Request;
 import infore.SDE.messages.Datapoint;
+import org.apache.hadoop.fs.shell.Count;
 
 /**
  * The SDEcoFlatMap is used after the connection of the dataStream with the requestStream and after
@@ -26,7 +28,13 @@ import infore.SDE.messages.Datapoint;
 public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Estimation> {
 
 	private static final long serialVersionUID = 1L;
+	/**
+	 * HashMap for storing non-continuous synopses of specific DatasetKey
+	 */
 	private HashMap<String,ArrayList<Synopsis>> M_Synopses = new HashMap<>();
+	/**
+	 * HashMap for storing continuous synopses of specific DatasetKey
+	 */
 	private HashMap<String,ArrayList<ContinuousSynopsis>> MC_Synopses = new HashMap<>();
 	private int pId;
 
@@ -94,6 +102,59 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 		ArrayList<Synopsis>  Synopses =  M_Synopses.get(rq.getKey());
 		ArrayList<ContinuousSynopsis>  C_Synopses =  MC_Synopses.get(rq.getKey());
 
+		/**
+		 * Request ID:100 --> Snapshot synopsis with specific UID and DatasetKey
+		 */
+		if (rq.getRequestID() == 100) {
+			// Snapshot possible non-continuous synopsis
+			for(Synopsis s: M_Synopses.get(rq.getKey())){
+				if(s.getSynopsisID() == rq.getUID()){
+					String snapshotKey = "syn_"+s.getSynopsisID()+"_"+rq.getKey()+".ser";
+					StorageManager.serializeSynopsisToS3(s, snapshotKey);
+					System.out.println("Snapshoted Synopsis: [ UID: "+s.getSynopsisID()+" | DatasetKey:"+rq.getKey()+" | Snapshot S3 key: "+snapshotKey+" | Digestion timestamp: "+ java.time.LocalDateTime.now().toString()+" ]");
+				}
+			}
+		}
+		/**
+		 * Request ID:200 --> Load snapshot of synopsis to current running instance
+		 */
+		if (rq.getRequestID() == 200) {
+			// Handle the case for loading CountMin synopsis (ID:1)
+			if(rq.getSynopsisID()==1){
+				String snapshotKey = "syn_"+rq.getUID()+"_"+rq.getKey()+".ser";
+				CountMin loadedObj = StorageManager.deserializeSynopsisFromS3(snapshotKey, CountMin.class);
+				for(Synopsis s: M_Synopses.get(rq.getKey())){
+					if(s.getSynopsisID() == rq.getUID()){
+						s = loadedObj;
+						System.out.println(s);
+						System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+					}
+				}
+			}
+			// Handle the case for loading BloomFilter synopsis (ID:2)
+			if(rq.getSynopsisID()==2){
+				String snapshotKey = "syn_"+rq.getUID()+"_"+rq.getKey()+".ser";
+				Bloomfilter loadedObj = StorageManager.deserializeSynopsisFromS3(snapshotKey, Bloomfilter.class);
+				for(Synopsis s: M_Synopses.get(rq.getKey())){
+					if(s.getSynopsisID() == rq.getUID()){
+						s = loadedObj;
+						System.out.println(s);
+						System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+					}
+				}
+			}
+			// Handle the case for loading AMSSketch synopsis (ID:3)
+			if(rq.getSynopsisID()==3){
+				String snapshotKey = "syn_"+rq.getUID()+"_"+rq.getKey()+".ser";
+				AMSsynopsis loadedObj = StorageManager.deserializeSynopsisFromS3(snapshotKey, AMSsynopsis.class);
+				for(Synopsis s: M_Synopses.get(rq.getKey())){
+					if(s.getSynopsisID() == rq.getUID()){
+						s = loadedObj;
+						System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+					}
+				}
+			}
+		}
 		/**
 		 * Request ID:1 --> Add synopsis with keyed partitioning (non continuous)
 		 * Request ID:4 --> Add synopsis with random partitioning (non continuous)
