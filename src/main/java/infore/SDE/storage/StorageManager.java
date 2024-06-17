@@ -113,7 +113,7 @@ public class StorageManager {
             return response.versions().stream()
                     .map(version -> {
                         String formattedDate = ZonedDateTime.ofInstant(version.lastModified(), ZoneId.systemDefault()).format(formatter);
-                        return String.format("Version ID: %s, Last Modified: %s, Size: %d bytes",
+                        return String.format("Version ID: %s, Snapshot at: %s, Size: %d bytes",
                                 version.versionId(),
                                 formattedDate,
                                 version.size());
