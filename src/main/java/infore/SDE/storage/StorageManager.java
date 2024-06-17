@@ -10,8 +10,18 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.io.*;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.stream.Collectors;
+import java.util.List;
+
 
 public class StorageManager {
 
@@ -52,11 +62,11 @@ public class StorageManager {
 
 
     /**
-     * This looks for version
-     * @param storageKeyName
-     * @param synopsisClass
-     * @return
-     * @param <T>
+     * This method looks for an entry inside the S3 bucket based on the name/key given as argument. It returns
+     * a deserialized synopsis object of the specified synopsis class.
+     * @param storageKeyName The key to look for inside the S3 bucket
+     * @param synopsisClass The class of the synopsis object to return
+     * @return Synopsis object of specific synopsis class not generic T
      */
     public static <T extends Synopsis> T deserializeSynopsisFromS3(String storageKeyName, Class<T> synopsisClass) {
         File tempFile = new File(storageKeyName);
@@ -77,6 +87,44 @@ public class StorageManager {
             }
         } finally {
             tempFile.delete();
+        }
+    }
+
+
+    /**
+     * Returns in a List of String with details about the versions of the file corresponding
+     * to the given key from a versioned S3 bucket
+     * @param key The key/name of the S3 entry for which the versions are requested
+     * @return List of Strings containing entries for all the version with ID, timestamp and size
+     */
+    public static List<String> getFileVersions(String key) {
+        Region region = Region.US_WEST_2; // Replace with your region
+
+        try {
+            ListObjectVersionsRequest request = ListObjectVersionsRequest.builder()
+                    .bucket(BUCKET_NAME)
+                    .prefix(key)
+                    .build();
+
+            ListObjectVersionsResponse response = s3.listObjectVersions(request);
+
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss O");
+
+            return response.versions().stream()
+                    .map(version -> {
+                        String formattedDate = ZonedDateTime.ofInstant(version.lastModified(), ZoneId.systemDefault()).format(formatter);
+                        return String.format("Version ID: %s, Last Modified: %s, Size: %d bytes",
+                                version.versionId(),
+                                formattedDate,
+                                version.size());
+                    })
+                    .collect(Collectors.toList());
+
+        } catch (S3Exception e) {
+            System.err.println(e.awsErrorDetails().errorMessage());
+            return null;
+        } finally {
+            s3.close();
         }
     }
 }
