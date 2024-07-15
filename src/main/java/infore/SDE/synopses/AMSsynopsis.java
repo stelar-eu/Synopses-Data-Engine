@@ -13,6 +13,12 @@ public class AMSsynopsis extends Synopsis implements Serializable {
 	private static final long serialVersionUID = 1L;
 	private transient AMSSketch ams;
 
+	/**
+	 * 	Serializable implemented method for writing an AMSSynopsis in a
+	 * 	serial form into object key-value store.	 *
+	 * @param oos The Object Output Stream
+	 * @throws IOException
+	 */
 	private void writeObject(ObjectOutputStream oos) throws IOException {
 		oos.defaultWriteObject();
 
