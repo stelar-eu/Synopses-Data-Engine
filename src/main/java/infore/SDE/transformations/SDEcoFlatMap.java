@@ -7,6 +7,7 @@ import java.util.*;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import infore.SDE.storage.StorageManager;
+import infore.SDE.storage.StorageManagerMinIO;
 import lib.WDFT.controlBucket;
 import lib.WLSH.Bucket;
 import infore.SDE.synopses.*;
@@ -58,7 +59,11 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 
 		if (Synopses != null) {
 			for (Synopsis ski : Synopses) {
-				ski.add(node.getValues());
+				try {
+					ski.add(node.getValues());
+				}catch(Exception e){
+					e.printStackTrace();
+				}
 			}
 			M_Synopses.put(node.getKey(),Synopses);
 		}
@@ -109,9 +114,9 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 			// Snapshot possible non-continuous synopsis
 			for(Synopsis s: M_Synopses.get(rq.getKey())){
 				if(s.getSynopsisID() == rq.getUID()){
-					String snapshotKey = "syn_"+s.getSynopsisID()+"_"+rq.getKey()+".ser";
-					StorageManager.serializeSynopsisToS3(s, snapshotKey);
-					System.out.println("Snapshoted Synopsis: [ UID: "+s.getSynopsisID()+" | DatasetKey:"+rq.getKey()+" | Snapshot S3 key: "+snapshotKey+" | Digestion timestamp: "+ java.time.LocalDateTime.now().toString()+" ]");
+					if(StorageManager.snapshotSynopsis(s, rq.getKey())) {
+						System.out.println("Snapshot Synopsis: [ UID: " + s.getSynopsisID() + " | DatasetKey:" + rq.getKey() + " | Digestion timestamp: " + java.time.LocalDateTime.now().toString() + " ]");
+					}
 				}
 			}
 		}
@@ -147,12 +152,17 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 			if(rq.getSynopsisID()==3){
 				String snapshotKey = "syn_"+rq.getUID()+"_"+rq.getKey()+".ser";
 				AMSsynopsis loadedObj = StorageManager.deserializeSynopsisFromS3(snapshotKey, AMSsynopsis.class);
-				for(Synopsis s: M_Synopses.get(rq.getKey())){
-					if(s.getSynopsisID() == rq.getUID()){
-						s = loadedObj;
-						System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+				try{
+					for(Synopsis s: M_Synopses.get(rq.getKey())){
+						if(s.getSynopsisID() == rq.getUID()){
+							s = loadedObj;
+							System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+						}
 					}
+				}catch(Exception e){
+					M_Synopses.put(rq.getKey() , new ArrayList<Synopsis>(){{add(loadedObj);}});
 				}
+
 			}
 		}
 		/**

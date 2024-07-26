@@ -9,10 +9,22 @@ import infore.SDE.messages.Request;
 import java.io.*;
 import java.lang.reflect.Field;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import java.util.HashMap;
+import java.util.Map;
+
 public class AMSsynopsis extends Synopsis implements Serializable {
 	private static final long serialVersionUID = 1L;
 	private transient AMSSketch ams;
 
+	/**
+	 * 	Serializable implemented method for writing an AMSSynopsis in a
+	 * 	serial form into object key-value store.	 *
+	 * @param oos The Object Output Stream
+	 * @throws IOException
+	 */
 	private void writeObject(ObjectOutputStream oos) throws IOException {
 		oos.defaultWriteObject();
 
@@ -41,7 +53,13 @@ public class AMSsynopsis extends Synopsis implements Serializable {
 			throw new IOException("Failed to serialize AMSSketch", e);
 		}
 	}
-
+	/**
+	 * 	Serializable implemented method for reading an AMSSynopsis
+	 * 	originating from a generic object store and creating a Java
+	 * 	AMSSynopsis object.
+	 * @param ois The Object Input Stream reading the serialized object
+	 * @throws IOException
+	 */
 	private void readObject(ObjectInputStream ois) throws IOException, ClassNotFoundException {
 		ois.defaultReadObject();
 
@@ -70,6 +88,56 @@ public class AMSsynopsis extends Synopsis implements Serializable {
 			testField.set(ams, test);
 		} catch (NoSuchFieldException | IllegalAccessException e) {
 			throw new IOException("Failed to deserialize AMSSketch", e);
+		}
+	}
+
+	/**
+	 * 	Return the synopsis in auniversal format (JSON here). Used
+	 * 	mainly for storing service-friendly formats of the synopsis
+	 * 	along the serialization
+	 *  @throws IOException
+	 */
+	public String toJson() throws IOException {
+		ObjectMapper mapper = new ObjectMapper();
+		mapper.enable(SerializationFeature.INDENT_OUTPUT);  // Enable pretty printing
+
+		// Serialize parent class fields
+		ObjectNode jsonNode = mapper.createObjectNode();
+		jsonNode.put("SynopsisID", this.SynopsisID);
+		jsonNode.put("keyIndex", this.keyIndex);
+		jsonNode.put("valueIndex", this.valueIndex);
+		jsonNode.put("operationMode", this.operationMode);
+
+		try {
+			// Access private fields using reflection
+			Field depthField = AMSSketch.class.getDeclaredField("depth");
+			Field bucketsField = AMSSketch.class.getDeclaredField("buckets");
+			Field countField = AMSSketch.class.getDeclaredField("count");
+			Field countsField = AMSSketch.class.getDeclaredField("counts");
+			Field testField = AMSSketch.class.getDeclaredField("test");
+
+			// Make private fields accessible
+			depthField.setAccessible(true);
+			bucketsField.setAccessible(true);
+			countField.setAccessible(true);
+			countsField.setAccessible(true);
+			testField.setAccessible(true);
+
+			// Prepare fields for JSON serialization
+			Map<String, Object> sketchData = new HashMap<>();
+			sketchData.put("depth", depthField.getInt(ams));
+			sketchData.put("buckets", bucketsField.getInt(ams));
+			sketchData.put("count", countField.getInt(ams));
+			sketchData.put("counts", countsField.get(ams));
+			sketchData.put("test", testField.get(ams));
+
+			// Convert sketchData to JSON and add to parent JSON node
+			ObjectNode amsNode = mapper.convertValue(sketchData, ObjectNode.class);
+			jsonNode.set("ams", amsNode);
+
+			return mapper.writeValueAsString(jsonNode);
+		} catch (NoSuchFieldException | IllegalAccessException e) {
+			throw new IOException("Failed to serialize AMSSketch", e);
 		}
 	}
 
