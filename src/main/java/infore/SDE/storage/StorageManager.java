@@ -2,6 +2,7 @@ package infore.SDE.storage;
 
 import infore.SDE.synopses.AMSsynopsis;
 import infore.SDE.synopses.Synopsis;
+import org.codehaus.jettison.json.JSONString;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -12,10 +13,14 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -27,9 +32,8 @@ public class StorageManager {
 
     private static final String BUCKET_NAME = "sde-e";
     private static final Region REGION = Region.EU_NORTH_1;
-    private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6RRAT6LFZF";
+    private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6R6OHOWKO4";
     private static final String AWS_SECRET_ACCESS_KEY = "";
-
 
     private static final S3Client s3 =  S3Client.builder()
             .region(REGION)
@@ -90,6 +94,106 @@ public class StorageManager {
         }
     }
 
+
+    /**
+     * This method serializes a Synopsis object irrelevant of type (AMS, LSH, CM etc)
+     * and saves the serialization output to an S3 bucket.
+     *
+     * @param synopsis Any synopsis object implementing the Serializable interface and
+     *                 both of the writeObject() and readObject() methods.
+     *
+     * @param storageKeyName The name/key of the file in the S3 bucket to store the synopsis
+     *                       state under
+     */
+    public static void storeSnapshotOfFormatInS3(Synopsis synopsis, String storageKeyName){
+        File tempFile = new File(storageKeyName);
+        AMSsynopsis amsSynopsis = (AMSsynopsis) synopsis;
+        try {
+            String json = amsSynopsis.toJson();
+
+            // Write JSON to a temporary file
+            Files.write(Paths.get(tempFile.getAbsolutePath()), json.getBytes());
+
+            // Upload the file to S3
+            s3.putObject(PutObjectRequest.builder().bucket(BUCKET_NAME).key(storageKeyName).build(),
+                    RequestBody.fromFile(tempFile));
+
+            // Delete the temporary file
+            Files.delete(tempFile.toPath());
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    /**
+     * Method to put (or overwrite) object with key=storageKeyName using content for
+     * its value, in an S3 bucket.
+     * @param storageKeyName The key of the object
+     * @param content The value is String format
+     */
+    public static void putObjectToS3(String storageKeyName, String content) {
+
+        try {
+            // Upload the file to S3
+            s3.putObject(PutObjectRequest.builder().bucket(BUCKET_NAME).key(storageKeyName).build(),
+                    RequestBody.fromBytes(content.getBytes()));
+            System.out.println("Put object under " + storageKeyName+ " in bucket " + BUCKET_NAME);
+        } catch (S3Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Method to get the content of a specific object using its key from an
+     * S3 bucket.
+     * @param storageKeyName The key of the object
+     * @return The content of the object in String format
+     */
+    public static String getObjectFromS3(String storageKeyName) {
+        StringBuilder content = new StringBuilder();
+
+        try {
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(BUCKET_NAME)
+                    .key(storageKeyName)
+                    .build();
+
+            ResponseInputStream<?> response = s3.getObject(getObjectRequest);
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(response, StandardCharsets.UTF_8));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line+"\n");
+            }
+
+        } catch (S3Exception | IOException e) {
+            System.err.println(e.getMessage());
+        }
+
+        return content.toString();
+    }
+
+
+    public static String getSynopsisMetadata(){
+
+        return null;
+    }
+
+    public static String getSynopsisLatestVersion(){
+
+        return null;
+    }
+
+    public static List<String> getSynopsisVersions(){
+
+        return null;
+    }
+
+    public static void buildOrUpdateSynopsisMetadata(){
+
+    }
 
     /**
      * Returns in a List of String with details about the versions of the file corresponding
