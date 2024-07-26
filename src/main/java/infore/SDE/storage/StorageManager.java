@@ -1,30 +1,27 @@
 package infore.SDE.storage;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import infore.SDE.synopses.AMSsynopsis;
 import infore.SDE.synopses.Synopsis;
-import org.codehaus.jettison.json.JSONString;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.services.s3.model.ObjectVersion;
-import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.stream.Collectors;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 
@@ -32,17 +29,19 @@ public class StorageManager {
 
     private static final String BUCKET_NAME = "sde-e";
     private static final Region REGION = Region.EU_NORTH_1;
-    private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6R6OHOWKO4";
+    private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6R7E6ESIFS";
     private static final String AWS_SECRET_ACCESS_KEY = "";
-
+    // Parse the input JSON string into a JsonNode
     private static final S3Client s3 =  S3Client.builder()
             .region(REGION)
             .credentialsProvider(StaticCredentialsProvider.create(
                     AwsBasicCredentials.create(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)))
             .build();
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
     /**
-     * This method serializes a Synopsis object irrelevant of type (AMS, LSH, CM etc)
+     * This method serializes a Synopsis object irrelevant of type (AMS, LSH, CM etc.)
      * and saves the serialization output to an S3 bucket.
      *
      * @param synopsis Any synopsis object implementing the Serializable interface and
@@ -62,6 +61,46 @@ public class StorageManager {
         } finally {
             tempFile.delete();
         }
+    }
+
+
+    /**
+     * Abstracts the whole process of snapshotting a synopsis and generating a new version of
+     * it inside the storage bucket in S3. It handles the generation of metadata, appropriate
+     * version handling and storage.
+     * @param synopsis The synopsis to be snapshot
+     * @return boolean True if process was successful, else false
+     */
+    public static boolean snapshotSynopsis(Synopsis synopsis, String datasetKey) {
+
+        // Assert that synopsis object given is not null, based.
+        if(synopsis==null){
+            return false;
+        }
+
+        try {
+            // Generate the key prefix for all synopsis related objects.
+            String synopsisStorageKey = "syn_"+ synopsis.getSynopsisID()+"_"+datasetKey+"_";
+
+            // Structure OR update the metadata of the synopsis or newly added version of it and get
+            // the version number that should be used, calculated by the metadata handling function.
+            int newVersionNumber = buildOrUpdateSynopsisMetadata(synopsis, datasetKey);
+            synopsisStorageKey += "v"+newVersionNumber;
+
+            // Serialize the synopsis object into the S3 bucket with .ser suffix as key
+            serializeSynopsisToS3(synopsis, synopsisStorageKey+".ser");
+
+            // Snapshot the state of the synopsis in JSON format into the S3 bucket with .json suffix as key
+            storeSnapshotOfFormatInS3(synopsis, synopsisStorageKey+".json");
+
+        }catch(Exception e){
+            e.printStackTrace();
+            return false;
+        }
+
+        // The process of version snapshot has been completed at this point, so True should be returned
+        // to mark the completion for the caller
+        return true;
     }
 
 
@@ -96,14 +135,17 @@ public class StorageManager {
 
 
     /**
-     * This method serializes a Synopsis object irrelevant of type (AMS, LSH, CM etc)
-     * and saves the serialization output to an S3 bucket.
+     * This method stores the state of a currently maintained Synopsis from Flink
+     * (including all member variables state etc.) in JSON format (for example)
+     * into S3.
      *
-     * @param synopsis Any synopsis object implementing the Serializable interface and
-     *                 both of the writeObject() and readObject() methods.
+     * @param synopsis Any synopsis object implementing the toJson() method with
+     *                 custom logic per synopsis case
      *
      * @param storageKeyName The name/key of the file in the S3 bucket to store the synopsis
-     *                       state under
+     *                       state under using appropriate suffix.
+     *
+     * //TODO Under developement, this instance of the method only work for AMS Sketches
      */
     public static void storeSnapshotOfFormatInS3(Synopsis synopsis, String storageKeyName){
         File tempFile = new File(storageKeyName);
@@ -118,8 +160,10 @@ public class StorageManager {
             s3.putObject(PutObjectRequest.builder().bucket(BUCKET_NAME).key(storageKeyName).build(),
                     RequestBody.fromFile(tempFile));
 
-            // Delete the temporary file
-            Files.delete(tempFile.toPath());
+            try {
+                // Delete the temporary file
+                Files.delete(tempFile.toPath());
+            }catch(Exception e){}
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -133,13 +177,12 @@ public class StorageManager {
      * @param storageKeyName The key of the object
      * @param content The value is String format
      */
-    public static void putObjectToS3(String storageKeyName, String content) {
+    private static void putObjectToS3(String storageKeyName, String content) {
 
         try {
             // Upload the file to S3
             s3.putObject(PutObjectRequest.builder().bucket(BUCKET_NAME).key(storageKeyName).build(),
                     RequestBody.fromBytes(content.getBytes()));
-            System.out.println("Put object under " + storageKeyName+ " in bucket " + BUCKET_NAME);
         } catch (S3Exception e) {
             e.printStackTrace();
         }
@@ -151,10 +194,19 @@ public class StorageManager {
      * @param storageKeyName The key of the object
      * @return The content of the object in String format
      */
-    public static String getObjectFromS3(String storageKeyName) {
+    private static String getObjectFromS3(String storageKeyName) {
         StringBuilder content = new StringBuilder();
 
         try {
+            // Check if the object exists
+            HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
+                    .bucket(BUCKET_NAME)
+                    .key(storageKeyName)
+                    .build();
+
+            HeadObjectResponse headObjectResponse = s3.headObject(headObjectRequest);
+
+            // If the object exists, proceed to get the object
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(BUCKET_NAME)
                     .key(storageKeyName)
@@ -165,70 +217,175 @@ public class StorageManager {
             BufferedReader reader = new BufferedReader(new InputStreamReader(response, StandardCharsets.UTF_8));
             String line;
             while ((line = reader.readLine()) != null) {
-                content.append(line+"\n");
+                content.append(line).append("\n");
             }
 
-        } catch (S3Exception | IOException e) {
-            System.err.println(e.getMessage());
-        }
+        } catch (S3Exception | IOException e) {}
 
         return content.toString();
     }
 
 
-    public static String getSynopsisMetadata(){
-
-        return null;
-    }
-
-    public static String getSynopsisLatestVersion(){
-
-        return null;
-    }
-
-    public static List<String> getSynopsisVersions(){
-
-        return null;
-    }
-
-    public static void buildOrUpdateSynopsisMetadata(){
-
+    /**
+     * Returns the entire JSON metadata structure for a given synopsis
+     * which has already been snapshot at least once in the past.
+     * @param s The synopsis object
+     * @return The JSON metadata in form of String.
+     */
+    public static String getSynopsisMetadata(Synopsis s, String datasetKey){
+        String synMetadataKey = "syn_"+s.getSynopsisID()+"_"+datasetKey+".METADATA.json";
+        String metadata = getObjectFromS3(synMetadataKey);
+        return metadata;
     }
 
     /**
-     * Returns in a List of String with details about the versions of the file corresponding
-     * to the given key from a versioned S3 bucket
-     * @param key The key/name of the S3 entry for which the versions are requested
-     * @return List of Strings containing entries for all the version with ID, timestamp and size
+     * Returns the number of the latest version of a given synopsis object previously
+     * snapshot into the S3 bucket
+     * @param s The synopsis object
+     * @return Number of the latest version
      */
-    public static List<String> getFileVersions(String key) {
-        Region region = Region.US_WEST_2; // Replace with your region
+    public static int getSynopsisLatestVersion(Synopsis s, String datasetKey) {
+        String metadata = getSynopsisMetadata(s, datasetKey);
+        if(!metadata.equals(null) && !metadata.isEmpty()){
+            JsonNode rootNode = null;
+            try {
+                rootNode = objectMapper.readTree(metadata);
+                // Get the latest version number
+                JsonNode latestVersionNode = rootNode.path("current_version");
+                // Check if the latest version exists
+                if (latestVersionNode.isMissingNode()) {
+                    return -1;
+                }
+                // Return the latest version number as an integer
+                return latestVersionNode.asInt();
+            } catch (IOException e) {
+                return -1;
+            }
+        }
+        return -1;
+    }
 
-        try {
-            ListObjectVersionsRequest request = ListObjectVersionsRequest.builder()
-                    .bucket(BUCKET_NAME)
-                    .prefix(key)
-                    .build();
+    /**
+     * Returns the keys corresponding to the version files of the synopsis s
+     * (.ser version files) from an S3 bucket. The file keys are returned as
+     * a list of Strings in descending order (from latest to oldest).
+     * @param s The synopsis object
+     * @return List of Strings containing all the versions of the synopsis
+     * @throws IOException
+     */
+    public static List<String> getSynopsisVersions(Synopsis s, String datasetKey) throws IOException {
+        String jsonString = getSynopsisMetadata(s, datasetKey);
+        // Parse the input JSON string into a JsonNode
+        ObjectNode rootNode = (ObjectNode) objectMapper.readTree(jsonString);
+        ObjectNode versionsNode = (ObjectNode) rootNode.path("versions");
+        // Collect file names
+        List<String> fileNames = new ArrayList<>();
+        Iterator<String> fieldNames = versionsNode.fieldNames();
+        while (fieldNames.hasNext()) {
+            String fieldName = fieldNames.next();
+            JsonNode versionNode = versionsNode.get(fieldName);
+            String fileName = versionNode.get("file_name").asText();
+            fileNames.add(fileName);
+        }
 
-            ListObjectVersionsResponse response = s3.listObjectVersions(request);
+        // Sort file names in descending order
+        Collections.sort(fileNames, Collections.reverseOrder());
+        return fileNames;
+    }
 
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss O");
+    /**
+     * Builds or updates the JSON metadata file for a synopsis including info
+     * about the versions of the synopsis, timestamps, newest version identifier etc.
+     * The resulting file is put into the S3 bucket with suffix: .METADATA. with
+     * its contents built in JSON format. You may reference to the documentation for the
+     * specific structure of this metadata file.
+     *
+     * @return The assigned number of the newly added version to be added to the bucket by
+     *         snapshotSynopsis()
+     */
+    public static int buildOrUpdateSynopsisMetadata(Synopsis s, String datasetKey) throws IOException {
+        String synMetadataKey = "syn_"+s.getSynopsisID()+"_"+datasetKey+".METADATA.json";
+        String synopsisStorageKeyPrefix = "syn_"+ s.getSynopsisID()+"_"+datasetKey+"_";
 
-            return response.versions().stream()
-                    .map(version -> {
-                        String formattedDate = ZonedDateTime.ofInstant(version.lastModified(), ZoneId.systemDefault()).format(formatter);
-                        return String.format("Version ID: %s, Snapshot at: %s, Size: %d bytes",
-                                version.versionId(),
-                                formattedDate,
-                                version.size());
-                    })
-                    .collect(Collectors.toList());
+        // Try to get the metadata
+        String metadata = getSynopsisMetadata(s, datasetKey);
 
-        } catch (S3Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            return null;
-        } finally {
-            s3.close();
+        // If synopsis is totally new and has not metadata
+        if(metadata.equals(null) || metadata.isEmpty()){
+        // Metadata for this specific synopsis have not been created until now, they
+        // should be constructed now
+
+            // Create an ObjectMapper instance
+            ObjectMapper mapper = new ObjectMapper();
+
+            // Create the root node
+            ObjectNode rootNode = mapper.createObjectNode();
+            rootNode.put("file_prefix", synopsisStorageKeyPrefix);
+            rootNode.put("current_version", "0");
+            rootNode.put("type", s.getClass().getSimpleName());
+
+            // Create the versioned_states node
+            ObjectNode versionedStatesNode = mapper.createObjectNode();
+            ObjectNode versionedState0 = mapper.createObjectNode();
+            versionedState0.put("file_name", synopsisStorageKeyPrefix+"v0.json");
+            versionedState0.put("snapshot_at", Instant.now().toString());
+            versionedStatesNode.set("0", versionedState0);
+            rootNode.set("versioned_states", versionedStatesNode);
+
+            // Create the versions node
+            ObjectNode versionsNode = mapper.createObjectNode();
+            ObjectNode version0 = mapper.createObjectNode();
+            version0.put("file_name", synopsisStorageKeyPrefix+"v0.ser");
+            version0.put("snapshot_at", Instant.now().toString());
+            versionsNode.set("0", version0);
+            rootNode.set("versions", versionsNode);
+
+            putObjectToS3(synMetadataKey, mapper.writeValueAsString(rootNode));
+
+            //This is the first version of the synopsis, so we return 0
+            return 0;
+        }else{
+
+        // Synopsis metadata have been priorly generated, so they just need to be updated
+        // by registering the newly created snapshot with the respective version.
+
+            ObjectMapper mapper = new ObjectMapper();
+
+            // Step 1: Keep the JSON metadata file from the bucket
+            // Parse the existing JSON string
+            JsonNode rootNode = mapper.readTree(metadata);
+
+            // Step 2a: Get the current version of the synopsis and update it with the new one
+            String newVersion = Integer.toString(getSynopsisLatestVersion(s,datasetKey) + 1);
+
+            // Step 2b: Generate the object/files that will also be used by the snapshotSynopsis()
+            //          to maintain consistency along the metadata and the actual storage
+
+            // Using synopsisStorageKeyPrefix already defined in this scope
+
+            // Step 3: Add entries into the "versions" and "versioned_states" objects of the JSON
+            // for the newly added version
+
+            // Add a new versioned_state
+            ObjectNode versionedStatesNode = (ObjectNode) rootNode.get("versioned_states");
+            ObjectNode newState = mapper.createObjectNode();
+            newState.put("file_name", synopsisStorageKeyPrefix+"v"+newVersion+".json");
+            newState.put("snapshot_at", Instant.now().toString());
+            versionedStatesNode.set(newVersion, newState);
+
+            // Add a new version
+            ObjectNode versionsNode = (ObjectNode) rootNode.get("versions");
+            ObjectNode newVersionNode = mapper.createObjectNode();
+            newVersionNode.put("file_name", synopsisStorageKeyPrefix+"v"+newVersion+".ser");
+            newVersionNode.put("snapshot_at", Instant.now().toString());
+            versionsNode.set(newVersion, newVersionNode);
+
+            // Step 4: Update the reference to the current version
+            ((ObjectNode) rootNode).put("current_version", newVersion);
+
+            putObjectToS3(synMetadataKey, mapper.writeValueAsString(rootNode));
+
+            return Integer.valueOf(newVersion);
         }
     }
 }
