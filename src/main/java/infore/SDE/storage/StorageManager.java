@@ -31,6 +31,7 @@ public class StorageManager {
     private static final Region REGION = Region.EU_NORTH_1;
     private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6R7E6ESIFS";
     private static final String AWS_SECRET_ACCESS_KEY = "";
+
     // Parse the input JSON string into a JsonNode
     private static final S3Client s3 =  S3Client.builder()
             .region(REGION)
@@ -39,30 +40,6 @@ public class StorageManager {
             .build();
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
-
-    /**
-     * This method serializes a Synopsis object irrelevant of type (AMS, LSH, CM etc.)
-     * and saves the serialization output to an S3 bucket.
-     *
-     * @param synopsis Any synopsis object implementing the Serializable interface and
-     *                 both of the writeObject() and readObject() methods.
-     *
-     * @param storageKeyName The name/key of the file in the S3 bucket to store the synopsis
-     *                       state under
-     */
-    public static void serializeSynopsisToS3(Synopsis synopsis, String storageKeyName){
-        File tempFile = new File(storageKeyName);
-        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(tempFile))) {
-            oos.writeObject(synopsis);
-            s3.putObject(PutObjectRequest.builder().bucket(BUCKET_NAME).key(storageKeyName).build(),
-                    RequestBody.fromFile(tempFile));
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            tempFile.delete();
-        }
-    }
-
 
     /**
      * Abstracts the whole process of snapshotting a synopsis and generating a new version of
@@ -102,6 +79,30 @@ public class StorageManager {
         // to mark the completion for the caller
         return true;
     }
+
+    /**
+     * This method serializes a Synopsis object irrelevant of type (AMS, LSH, CM etc.)
+     * and saves the serialization output to an S3 bucket.
+     *
+     * @param synopsis Any synopsis object implementing the Serializable interface and
+     *                 both of the writeObject() and readObject() methods.
+     *
+     * @param storageKeyName The name/key of the file in the S3 bucket to store the synopsis
+     *                       state under
+     */
+    private static void serializeSynopsisToS3(Synopsis synopsis, String storageKeyName){
+        File tempFile = new File(storageKeyName);
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(tempFile))) {
+            oos.writeObject(synopsis);
+            s3.putObject(PutObjectRequest.builder().bucket(BUCKET_NAME).key(storageKeyName).build(),
+                    RequestBody.fromFile(tempFile));
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            tempFile.delete();
+        }
+    }
+
 
 
     /**
@@ -230,6 +231,7 @@ public class StorageManager {
      * Returns the entire JSON metadata structure for a given synopsis
      * which has already been snapshot at least once in the past.
      * @param s The synopsis object
+     * @param datasetKey The request dataset key parameter
      * @return The JSON metadata in form of String.
      */
     public static String getSynopsisMetadata(Synopsis s, String datasetKey){
@@ -242,6 +244,7 @@ public class StorageManager {
      * Returns the number of the latest version of a given synopsis object previously
      * snapshot into the S3 bucket
      * @param s The synopsis object
+     * @param datasetKey The request dataset key parameter
      * @return Number of the latest version
      */
     public static int getSynopsisLatestVersion(Synopsis s, String datasetKey) {
@@ -270,6 +273,7 @@ public class StorageManager {
      * (.ser version files) from an S3 bucket. The file keys are returned as
      * a list of Strings in descending order (from latest to oldest).
      * @param s The synopsis object
+     * @param datasetKey The request dataset key parameter
      * @return List of Strings containing all the versions of the synopsis
      * @throws IOException
      */
@@ -299,7 +303,8 @@ public class StorageManager {
      * The resulting file is put into the S3 bucket with suffix: .METADATA. with
      * its contents built in JSON format. You may reference to the documentation for the
      * specific structure of this metadata file.
-     *
+     * @param s The synopsis object to build metadata file for
+     * @param datasetKey The request dataset key parameter
      * @return The assigned number of the newly added version to be added to the bucket by
      *         snapshotSynopsis()
      */
