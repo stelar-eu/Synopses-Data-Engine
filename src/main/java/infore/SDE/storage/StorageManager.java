@@ -29,7 +29,7 @@ public class StorageManager {
 
     private static final String BUCKET_NAME = "sde-e";
     private static final Region REGION = Region.EU_NORTH_1;
-    private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6R7E6ESIFS";
+    private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6RWKPC3QHH";
     private static final String AWS_SECRET_ACCESS_KEY = "";
 
     // Parse the input JSON string into a JsonNode
@@ -168,6 +168,68 @@ public class StorageManager {
 
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+
+    /**
+     * Abstracts the whole process of loading a snapshot of a synopsis in the form
+     * of Java object from an S3 bucket, in which it was previously saved. The use
+     * of the object returned (if so), is subject to the caller of the method.
+     *
+     * @param datasetKey The dataset key defined by the caller of the method
+     * @param uid The unique id of the synopsis to be loaded
+     * @param synopsisClass The class of the synopsis object to return
+     * @param versionNumber The snapshot version requested
+     * @return Synopsis object of specific synopsis class not generic T in version 'versionNumber' or null if not found
+     */
+    public static <T extends Synopsis> T loadSynopsisSnapshot(String datasetKey, String uid, Class<T> synopsisClass, int versionNumber) {
+        String snapshotKey = "syn_"+uid+"_"+datasetKey+"_v"+versionNumber+".ser";
+        try{
+            return deserializeSynopsisFromS3(snapshotKey, synopsisClass);
+        }catch(Exception e){
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Abstracts the whole process of loading the latest snapshot of a synopsis in the form
+     * of Java object from an S3 bucket, in which it was previously saved. The use
+     * of the object returned (if so), is subject to the caller of the method.
+     *
+     * @param s The synopsis to load the latest snapshot for, must be already snapshot once in the past
+     * @param datasetKey The request dataset parameter
+     * @param synopsisClass The class of the synopsis object to be loaded
+     * @return Synopsis object of specific synopsis class not generic T or null in case of error
+     */
+    public static <T extends Synopsis> T loadSynopsisLatestSnapshot(Synopsis s, String datasetKey, Class<T> synopsisClass) {
+        try {
+            String snapshotKey = getSynopsisVersions(s, datasetKey).get(0);
+            return deserializeSynopsisFromS3(snapshotKey, synopsisClass);
+        }catch (Exception e){
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Abstracts the whole process of loading the latest state of a synopsis in the form
+     * of Java object from an S3 bucket, in which it was previously saved. The use
+     * of the object returned (if so), is subject to the caller of the method.
+     *
+     * @param s The synopsis to load the latest state snapshot for, must be already snapshot once in the past
+     * @param datasetKey The request dataset parameter
+     * @return JSON in string format
+     */
+    public static String loadSynopsisLatestState(Synopsis s, String datasetKey) {
+        try {
+            int latestVersion = getSynopsisLatestVersion(s, datasetKey);
+            String stateKey = "syn_"+s.getSynopsisID()+"_"+datasetKey+"_v"+latestVersion+".json";
+            return getObjectFromS3(stateKey);
+        }catch (Exception e){
+            e.printStackTrace();
+            return null;
         }
     }
 
