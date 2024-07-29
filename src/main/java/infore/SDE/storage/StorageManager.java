@@ -183,7 +183,7 @@ public class StorageManager {
      * @param versionNumber The snapshot version requested
      * @return Synopsis object of specific synopsis class not generic T in version 'versionNumber' or null if not found
      */
-    public static <T extends Synopsis> T loadSynopsisSnapshot(String datasetKey, String uid, Class<T> synopsisClass, int versionNumber) {
+    public static <T extends Synopsis> T loadSynopsisSnapshot(String datasetKey, int uid, Class<T> synopsisClass, int versionNumber) {
         String snapshotKey = "syn_"+uid+"_"+datasetKey+"_v"+versionNumber+".ser";
         try{
             return deserializeSynopsisFromS3(snapshotKey, synopsisClass);
@@ -198,14 +198,14 @@ public class StorageManager {
      * of Java object from an S3 bucket, in which it was previously saved. The use
      * of the object returned (if so), is subject to the caller of the method.
      *
-     * @param s The synopsis to load the latest snapshot for, must be already snapshot once in the past
+     * @param uid The unique identifier of the synopsis to load the latest snapshot of
      * @param datasetKey The request dataset parameter
      * @param synopsisClass The class of the synopsis object to be loaded
      * @return Synopsis object of specific synopsis class not generic T or null in case of error
      */
-    public static <T extends Synopsis> T loadSynopsisLatestSnapshot(Synopsis s, String datasetKey, Class<T> synopsisClass) {
+    public static <T extends Synopsis> T loadSynopsisLatestSnapshot(String datasetKey, int uid, Class<T> synopsisClass) {
         try {
-            String snapshotKey = getSynopsisVersions(s, datasetKey).get(0);
+            String snapshotKey = getSynopsisVersions(uid, datasetKey).get(0);
             return deserializeSynopsisFromS3(snapshotKey, synopsisClass);
         }catch (Exception e){
             e.printStackTrace();
@@ -224,7 +224,7 @@ public class StorageManager {
      */
     public static String loadSynopsisLatestState(Synopsis s, String datasetKey) {
         try {
-            int latestVersion = getSynopsisLatestVersion(s, datasetKey);
+            int latestVersion = getSynopsisLatestVersionNumber(s.getSynopsisID(), datasetKey);
             String stateKey = "syn_"+s.getSynopsisID()+"_"+datasetKey+"_v"+latestVersion+".json";
             return getObjectFromS3(stateKey);
         }catch (Exception e){
@@ -292,12 +292,12 @@ public class StorageManager {
     /**
      * Returns the entire JSON metadata structure for a given synopsis
      * which has already been snapshot at least once in the past.
-     * @param s The synopsis object
+     * @param uid The synopsis unique identifier
      * @param datasetKey The request dataset key parameter
      * @return The JSON metadata in form of String.
      */
-    public static String getSynopsisMetadata(Synopsis s, String datasetKey){
-        String synMetadataKey = "syn_"+s.getSynopsisID()+"_"+datasetKey+".METADATA.json";
+    public static String getSynopsisMetadata(int uid, String datasetKey){
+        String synMetadataKey = "syn_"+uid+"_"+datasetKey+".METADATA.json";
         String metadata = getObjectFromS3(synMetadataKey);
         return metadata;
     }
@@ -305,12 +305,12 @@ public class StorageManager {
     /**
      * Returns the number of the latest version of a given synopsis object previously
      * snapshot into the S3 bucket
-     * @param s The synopsis object
+     * @param uid The synopsis unique identifier
      * @param datasetKey The request dataset key parameter
      * @return Number of the latest version
      */
-    public static int getSynopsisLatestVersion(Synopsis s, String datasetKey) {
-        String metadata = getSynopsisMetadata(s, datasetKey);
+    public static int getSynopsisLatestVersionNumber(int uid, String datasetKey) {
+        String metadata = getSynopsisMetadata(uid, datasetKey);
         if(!metadata.equals(null) && !metadata.isEmpty()){
             JsonNode rootNode = null;
             try {
@@ -334,13 +334,13 @@ public class StorageManager {
      * Returns the keys corresponding to the version files of the synopsis s
      * (.ser version files) from an S3 bucket. The file keys are returned as
      * a list of Strings in descending order (from latest to oldest).
-     * @param s The synopsis object
+     * @param uid The synopsis unique identifier
      * @param datasetKey The request dataset key parameter
      * @return List of Strings containing all the versions of the synopsis
      * @throws IOException
      */
-    public static List<String> getSynopsisVersions(Synopsis s, String datasetKey) throws IOException {
-        String jsonString = getSynopsisMetadata(s, datasetKey);
+    public static List<String> getSynopsisVersions(int uid, String datasetKey) throws IOException {
+        String jsonString = getSynopsisMetadata(uid, datasetKey);
         // Parse the input JSON string into a JsonNode
         ObjectNode rootNode = (ObjectNode) objectMapper.readTree(jsonString);
         ObjectNode versionsNode = (ObjectNode) rootNode.path("versions");
@@ -375,7 +375,7 @@ public class StorageManager {
         String synopsisStorageKeyPrefix = "syn_"+ s.getSynopsisID()+"_"+datasetKey+"_";
 
         // Try to get the metadata
-        String metadata = getSynopsisMetadata(s, datasetKey);
+        String metadata = getSynopsisMetadata(s.getSynopsisID(), datasetKey);
 
         // If synopsis is totally new and has not metadata
         if(metadata.equals(null) || metadata.isEmpty()){
@@ -423,7 +423,7 @@ public class StorageManager {
             JsonNode rootNode = mapper.readTree(metadata);
 
             // Step 2a: Get the current version of the synopsis and update it with the new one
-            String newVersion = Integer.toString(getSynopsisLatestVersion(s,datasetKey) + 1);
+            String newVersion = Integer.toString(getSynopsisLatestVersionNumber(s.getSynopsisID(),datasetKey) + 1);
 
             // Step 2b: Generate the object/files that will also be used by the snapshotSynopsis()
             //          to maintain consistency along the metadata and the actual storage
