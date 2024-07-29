@@ -3,6 +3,7 @@ package infore.SDE.transformations;
 import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.time.LocalDateTime;
 import java.util.*;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -37,6 +38,8 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 	 * HashMap for storing continuous synopses of specific DatasetKey
 	 */
 	private HashMap<String,ArrayList<ContinuousSynopsis>> MC_Synopses = new HashMap<>();
+
+
 	private int pId;
 
 	/**
@@ -111,65 +114,209 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 		 * Request ID:100 --> Snapshot synopsis with specific UID and DatasetKey
 		 */
 		if (rq.getRequestID() == 100) {
-			// Snapshot possible non-continuous synopsis
+			boolean snapshotFlag = false;
+			// Snapshot possible existent non-continuous synopsis
 			for(Synopsis s: M_Synopses.get(rq.getKey())){
 				if(s.getSynopsisID() == rq.getUID()){
 					if(StorageManager.snapshotSynopsis(s, rq.getKey())) {
-						System.out.println("Snapshot Synopsis: [ UID: " + s.getSynopsisID() + " | DatasetKey:" + rq.getKey() + " | Digestion timestamp: " + java.time.LocalDateTime.now().toString() + " ]");
+						System.out.println("Snapshot Synopsis: [ UID: " + s.getSynopsisID() + " | DatasetKey:" + rq.getKey() + " | Digestion timestamp: " + LocalDateTime.now().toString() + " ]");
+						snapshotFlag = true;
+					}else{
+						// The snapshot failed due to storage error
+						System.out.println("Snapshot Synopsis Failed: [ Internal Storage Error ] ");
 					}
 				}
 			}
+			// If no snapshotting has happened and the Storage Manager is not responsible for the error, then no synopsis was found with matching data
+			if(!snapshotFlag){
+				System.out.println("Snapshot Synopsis Failed: Could not find synopsis with details: [ UID: "+rq.getUID()+" | DatasetKey: "+rq.getKey()+" ]");
+			}
 		}
+
+
 		/**
-		 * Request ID:200 --> Load snapshot of synopsis to current running instance
+		 * Request ID:200 --> Load snapshot of synopsis to current running instance of it
 		 */
-		if (rq.getRequestID() == 200) {
+		/**
+		 * Request ID:201 --> Load snapshot of synopsis of specified version to current running instance of it
+		 */
+		else if (rq.getRequestID() == 201 || rq.getRequestID() == 200) {
 			// Handle the case for loading CountMin synopsis (ID:1)
 			if(rq.getSynopsisID()==1){
-				String snapshotKey = "syn_"+rq.getUID()+"_"+rq.getKey()+".ser";
-				CountMin loadedObj = StorageManager.deserializeSynopsisFromS3(snapshotKey, CountMin.class);
-				for(Synopsis s: M_Synopses.get(rq.getKey())){
-					if(s.getSynopsisID() == rq.getUID()){
-						s = loadedObj;
-						System.out.println(s);
-						System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+				try {
+					CountMin loadedObj = null;
+					// Handle case where version of desired snapshot is specified by the request parameters
+					if(rq.getRequestID() == 201){
+						loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), CountMin.class, Integer.valueOf(rq.getParam()[0]));
+						// Handle case when the latest version should be loaded
+					}else if(rq.getRequestID() == 200){
+						loadedObj = StorageManager.loadSynopsisLatestSnapshot(rq.getKey(), rq.getUID(), CountMin.class);
 					}
+
+					// Iterator won't work here, because the array is modified during iteration
+					// so ConcurrentModificationException will occur.
+					for (int i=0; i<M_Synopses.get(rq.getKey()).size(); i++) {
+						Synopsis s = M_Synopses.get(rq.getKey()).get(i);
+						if (s.getSynopsisID() == rq.getUID()) {
+							//Load the version into the Maintenance Array
+							Synopses.remove(s);
+							Synopses.add(loadedObj);
+							//Info print
+							String vLoaded = rq.getRequestID()==200 ? String.valueOf(StorageManager.getSynopsisLatestVersionNumber(rq.getUID(), rq.getKey())) : rq.getParam()[0];
+							System.out.println("Loaded snapshot of synopsis: [ Version : v" + vLoaded + " --> UID: " + rq.getUID() + " | DatasetKey:" + rq.getKey() + " | Type: CountMin ]");
+						}
+					}
+					// Update the currently maintained synopses
+					M_Synopses.put(rq.getKey(), Synopses);
+				} catch(Exception e){
+					e.printStackTrace();
 				}
 			}
 			// Handle the case for loading BloomFilter synopsis (ID:2)
 			if(rq.getSynopsisID()==2){
-				String snapshotKey = "syn_"+rq.getUID()+"_"+rq.getKey()+".ser";
-				Bloomfilter loadedObj = StorageManager.deserializeSynopsisFromS3(snapshotKey, Bloomfilter.class);
-				for(Synopsis s: M_Synopses.get(rq.getKey())){
-					if(s.getSynopsisID() == rq.getUID()){
-						s = loadedObj;
-						System.out.println(s);
-						System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+				try {
+					Bloomfilter loadedObj = null;
+					// Handle case where version of desired snapshot is specified by the request parameters
+					if(rq.getRequestID() == 201){
+						loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), Bloomfilter.class, Integer.valueOf(rq.getParam()[0]));
+						// Handle case when the latest version should be loaded
+					}else if(rq.getRequestID() == 200){
+						loadedObj = StorageManager.loadSynopsisLatestSnapshot(rq.getKey(), rq.getUID(), Bloomfilter.class);
 					}
+
+					// Iterator won't work here, because the array is modified during iteration
+					// so ConcurrentModificationException will occur.
+					for (int i=0; i<M_Synopses.get(rq.getKey()).size(); i++) {
+						Synopsis s = M_Synopses.get(rq.getKey()).get(i);
+						if (s.getSynopsisID() == rq.getUID()) {
+							//Load the version into the Maintenance Array
+							Synopses.remove(s);
+							Synopses.add(loadedObj);
+							//Info print
+							String vLoaded = rq.getRequestID()==200 ? String.valueOf(StorageManager.getSynopsisLatestVersionNumber(rq.getUID(), rq.getKey())) : rq.getParam()[0];
+							System.out.println("Loaded snapshot of synopsis: [ Version : v" + vLoaded + " --> UID: " + rq.getUID() + " | DatasetKey:" + rq.getKey() + " | Type: BloomFilter ]");
+						}
+					}
+					// Update the currently maintained synopses
+					M_Synopses.put(rq.getKey(), Synopses);
+				} catch(Exception e){
+					e.printStackTrace();
 				}
 			}
 			// Handle the case for loading AMSSketch synopsis (ID:3)
 			if(rq.getSynopsisID()==3){
-				String snapshotKey = "syn_"+rq.getUID()+"_"+rq.getKey()+".ser";
-				AMSsynopsis loadedObj = StorageManager.deserializeSynopsisFromS3(snapshotKey, AMSsynopsis.class);
-				try{
-					for(Synopsis s: M_Synopses.get(rq.getKey())){
-						if(s.getSynopsisID() == rq.getUID()){
-							s = loadedObj;
-							System.out.println("Loaded snapshot of synopsis: [ Snapshot S3 key: "+snapshotKey+ " | UID: "+rq.getUID()+" | DatasetKey:"+rq.getKey() + " ]");
+				try {
+					AMSsynopsis loadedObj = null;
+					// Handle case where version of desired snapshot is specified by the request parameters
+					if(rq.getRequestID() == 201){
+						loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), AMSsynopsis.class, Integer.valueOf(rq.getParam()[0]));
+						// Handle case when the latest version should be loaded
+					}else if(rq.getRequestID() == 200){
+						loadedObj = StorageManager.loadSynopsisLatestSnapshot(rq.getKey(), rq.getUID(), AMSsynopsis.class);
+					}
+
+					// Iterator won't work here, because the array is modified during iteration
+					// so ConcurrentModificationException will occur.
+					for (int i=0; i<M_Synopses.get(rq.getKey()).size(); i++) {
+						Synopsis s = M_Synopses.get(rq.getKey()).get(i);
+						if (s.getSynopsisID() == rq.getUID()) {
+							//Load the version into the Maintenance Array
+							Synopses.remove(s);
+							Synopses.add(loadedObj);
+							//Info print
+							String vLoaded = rq.getRequestID()==200 ? String.valueOf(StorageManager.getSynopsisLatestVersionNumber(rq.getUID(), rq.getKey())) : rq.getParam()[0];
+							System.out.println("Loaded snapshot of synopsis: [ Version : v" + vLoaded + " --> UID: " + rq.getUID() + " | DatasetKey:" + rq.getKey() + " | Type: AMS Sketch ]");
 						}
 					}
-				}catch(Exception e){
-					M_Synopses.put(rq.getKey() , new ArrayList<Synopsis>(){{add(loadedObj);}});
+					// Update the currently maintained synopses
+					M_Synopses.put(rq.getKey(), Synopses);
+				} catch(Exception e){
+					e.printStackTrace();
 				}
-
 			}
+		}
+
+
+		/**
+		 * Request ID:202 --> Load snapshot of synopsis of specified version to newly instantiated synopsis
+		 */
+		else if (rq.getRequestID() == 202) {
+			// Handle the case for loading CountMin synopsis (ID:1)
+			if(rq.getSynopsisID()==1){
+				try {
+					CountMin loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), CountMin.class, Integer.valueOf(rq.getParam()[0]));
+					loadedObj.setSynopsisID(Integer.valueOf(rq.getParam()[1]));
+					Synopses.add(loadedObj);
+					System.out.println("Loaded snapshot of synopsis into new instance: [ Version : v" + rq.getParam()[0] + " | New UID: " + rq.getParam()[1] + " | DatasetKey:" + rq.getKey() + " | Type: CountMin ]");
+					M_Synopses.put(rq.getKey(), Synopses);
+				}catch(Exception e){
+					e.printStackTrace();
+				}
+			}
+			// Handle the case for loading BloomFilter synopsis (ID:2)
+			if(rq.getSynopsisID()==2){
+				try {
+					Bloomfilter loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), Bloomfilter.class, Integer.valueOf(rq.getParam()[0]));
+					loadedObj.setSynopsisID(Integer.valueOf(rq.getParam()[1]));
+					Synopses.add(loadedObj);
+					System.out.println("Loaded snapshot of synopsis into new instance: [ Version : v" + rq.getParam()[0] + " | New UID: " + rq.getParam()[1] + " | DatasetKey:" + rq.getKey() + " | Type: BloomFilter ]");
+					M_Synopses.put(rq.getKey(), Synopses);
+				}catch(Exception e){
+					e.printStackTrace();
+				}
+			}
+			// Handle the case for loading AMSSketch synopsis (ID:3)
+			if(rq.getSynopsisID()==3){
+				try {
+					AMSsynopsis loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), AMSsynopsis.class, Integer.valueOf(rq.getParam()[0]));
+					loadedObj.setSynopsisID(Integer.valueOf(rq.getParam()[1]));
+					Synopses.add(loadedObj);
+					System.out.println("Loaded snapshot of synopsis into new instance: [ Version : v" + rq.getParam()[0] + " | New UID: " + rq.getParam()[1] + " | DatasetKey:" + rq.getKey() + " | Type: AMS Sketch ]");
+					M_Synopses.put(rq.getKey(), Synopses);
+				}catch(Exception e){
+					e.printStackTrace();
+				}
+			}
+		}
+
+		/**
+		 * Debug request that prints out the state of a running synopsis based on the request parameters
+		 */
+		else if(rq.getRequestID() == 1111){
+			try {
+				for (Synopsis s : M_Synopses.get(rq.getKey())) {
+					if(s.getSynopsisID()==rq.getUID()){
+						if(s instanceof AMSsynopsis){
+							System.out.println("[ Synopsis type: "+s.getClass().getSimpleName()+" | UID: "+ s.getSynopsisID() + " | DatasetKey: "+rq.getKey()+ " ]\n--> Synopsis State:\n"+((AMSsynopsis) s).toJson());
+						}
+					}
+				}
+			}catch (Exception e){
+				e.printStackTrace();
+			}
+		}
+		else if(rq.getRequestID() == 1000){
+			try{
+				StringBuilder builder = new StringBuilder();
+				for(String datasetKey : M_Synopses.keySet()){
+					builder.append("[ Synopses maintained for Key: "+datasetKey+ " ]");
+					builder.append("\n");
+					for(Synopsis s: M_Synopses.get(datasetKey)){
+						builder.append("\t Synopsis: [ UID: "+s.getSynopsisID()+ " | Dataset Key: "+datasetKey+ " | Type: "+s.getClass().getSimpleName()+ " ]");
+						builder.append("\n");
+					}
+				}
+				System.out.println(builder.toString());
+			}catch(Exception e){
+				e.printStackTrace();
+			}
+
 		}
 		/**
 		 * Request ID:1 --> Add synopsis with keyed partitioning (non continuous)
 		 * Request ID:4 --> Add synopsis with random partitioning (non continuous)
 		 */
-		if (rq.getRequestID() == 1 || rq.getRequestID() == 4 ) {
+		else if (rq.getRequestID() == 1 || rq.getRequestID() == 4 ) {
 
 			if(Synopses==null){
 				Synopses = new ArrayList<>();
