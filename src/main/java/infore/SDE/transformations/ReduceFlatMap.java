@@ -70,6 +70,7 @@ public class ReduceFlatMap extends RichFlatMapFunction<Estimation, Estimation> {
             } else {
                 t_rf = new SimpleSumFunction(value.getNoOfP(), 0, value.getParam(), value.getSynopsisID(), value.getRequestID());
             }
+            t_rf.add(value);
         }
         //OR
         else if (id == 2) {
@@ -103,6 +104,20 @@ public class ReduceFlatMap extends RichFlatMapFunction<Estimation, Estimation> {
             //int workers, double th, int k, int t, String[] stock
             t_rf.add(value);
         }
+        else if (id == 30) {
+            // SpatialSketch
+            String[] params = value.getParam();
+            if (params.length != 6) {
+                throw new UnsupportedOperationException("Invalid number of parameters");
+            }
+            int basicSketchID = Integer.parseInt(params[1]);
+            if (basicSketchID != 1) {
+                throw new UnsupportedOperationException("Basic Sketch not available");
+            }
+            t_rf = new SimpleSumFunction(value.getNoOfP(), 0, value.getParam(), value.getSynopsisID(), value.getRequestID());
+            t_rf.add(value);
+        }
+
         return t_rf;
     }
 
