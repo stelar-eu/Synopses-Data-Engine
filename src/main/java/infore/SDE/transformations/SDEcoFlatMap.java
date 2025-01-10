@@ -529,6 +529,18 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 						newSketch = new PastDFTSynopsis(rq.getUID(), rq.getParam());
 					Synopses.add(newSketch);
 					break;
+				case 30:
+					System.out.println("ADD-> _" + rq.toJsonString());
+					if (rq.getParam().length > 4)
+						newSketch = new SpatialSketch(rq.getUID(), rq.getParam());
+					Synopses.add(newSketch);
+					break;
+				case 31:
+					System.out.println("ADD-> _" + rq.toJsonString());
+					if (rq.getParam().length > 6)
+						newSketch = new OmniSketch(rq.getUID(), rq.getParam());
+					Synopses.add(newSketch);
+					break;
 			}
 			M_Synopses.put(rq.getKey(),Synopses);
 		}
