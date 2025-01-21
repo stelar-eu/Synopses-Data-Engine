@@ -6,7 +6,6 @@ import lib.WDFT.PAIR;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.streaming.util.serialization.KeyedSerializationSchema;
-
 import infore.SDE.messages.Estimation;
 
 import java.util.Arrays;

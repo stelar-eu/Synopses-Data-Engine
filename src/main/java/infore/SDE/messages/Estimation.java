@@ -7,7 +7,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-public class Estimation implements Serializable {
+public class Estimation extends SDEOutput implements Serializable {
 
 	private static final long serialVersionUID = 1L;
 	private Object estimation; // the value of the Estimation
