@@ -36,13 +36,15 @@
 
 	<dependencies>
 
- 	<dependency>
-            <groupId>net.sf.geographiclib</groupId>
-            <artifactId>GeographicLib-Java</artifactId>
-            <version>1.50</version>
-        </dependency>
+		<!-- Geographic library -->
+		<dependency>
+			<groupId>net.sf.geographiclib</groupId>
+			<artifactId>GeographicLib-Java</artifactId>
+			<version>1.50</version>
+			<scope>compile</scope>
+		</dependency>
 
-
+		<!-- Apache Flink dependencies -->
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-java</artifactId>
@@ -55,20 +57,33 @@
 			<version>${flink.version}</version>
 			<scope>compile</scope>
 		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-core</artifactId>
+			<version>${flink.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-connector-kafka_2.11</artifactId>
+			<version>${flink.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-avro</artifactId>
+			<version>${flink.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-queryable-state-runtime_2.11</artifactId>
+			<version>${flink.version}</version>
+			<scope>compile</scope>
+		</dependency>
 
-		<!-- https://mvnrepository.com/artifact/org.influxdb/influxdb-java -->
-
+		<!-- Other dependencies -->
 		<dependency>
 			<groupId>com.github.mayconbordin</groupId>
 			<artifactId>streaminer</artifactId>
 			<version>1.1.1</version>
-		</dependency>
-
-
-		<dependency>
-			<groupId>io.minio</groupId>
-			<artifactId>minio</artifactId>
-			<version>8.3.0</version>
 		</dependency>
 
 		<dependency>
@@ -77,6 +92,12 @@
 			<version>33.1.0-jre</version>
 		</dependency>
 
+		<dependency>
+			<groupId>io.minio</groupId>
+			<artifactId>minio</artifactId>
+			<version>8.5.13</version>
+			<scope>compile</scope>
+		</dependency>
 
 		<dependency>
 			<groupId>com.addthis</groupId>
@@ -84,29 +105,13 @@
 			<version>3.0.0</version>
 		</dependency>
 
-
 		<dependency>
 			<groupId>joda-time</groupId>
 			<artifactId>joda-time</artifactId>
 			<version>2.10.1</version>
 		</dependency>
 
-		<!-- Apache Flink dependencies -->
-
-
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-core</artifactId>
-			<version>${flink.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-walkthrough-common</artifactId>
-			<version>1.19.0</version>
-		</dependency>
-
-
-		<!-- Yahoooo dependencies -->
+		<!-- Yahoo dependencies -->
 
 		<dependency>
 			<groupId>com.yahoo.datasketches</groupId>
@@ -120,14 +125,6 @@
 			<version>2.9.5</version>
 		</dependency>
 
-
-        <!-- https://mvnrepository.com/artifact/org.apache.flink/flink-connector-kafka-->
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-kafka_2.11</artifactId>
-			<version>1.9.3</version>
-		</dependency>
-
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
@@ -138,56 +135,12 @@
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-csv</artifactId>
 			<version>1.8</version>
-		</dependency>
-
-		<!-- Mongo Client Dependency -->
-		<dependency>
-			<groupId>org.mongodb</groupId>
-			<artifactId>mongodb-driver-sync</artifactId>
-			<version>4.3.4</version>
+			<scope>compile</scope>
 		</dependency>
 
 
-
-
-		<!-- Add connector dependencies here. They must be in the default scope
-			(compile). -->
-		<!-- <dependency> <groupId>org.apache.flink</groupId> <artifactId>flink-connector-filesystem_2.11</artifactId>
-			<version>1.6.0</version> </dependency> <dependency> <groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-kafka-0.11_2.11</artifactId> <version>1.8.1</version>
-			</dependency> -->
-
-		<!-- https://mvnrepository.com/artifact/org.apache.flink/flink-connector-kafka-0.11-->
-
-			<dependency> <groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-kafka-base_2.11</artifactId>
-				<version>${flink.version}</version>
-			</dependency>
-
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-avro</artifactId>
-			<version>${flink.version}</version>
-		</dependency>
-		<!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
-
-		<dependency>
-			<groupId>com.fasterxml.jackson.core</groupId>
-			<artifactId>jackson-databind</artifactId>
-			<version>2.9.5</version>
-		</dependency>
-
-		<!-- https://mvnrepository.com/artifact/org.apache.flink/flink-queryable-state-runtime -->
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-queryable-state-runtime_2.11</artifactId>
-			<version>${flink.version}</version>
-		</dependency>
-
-		<!-- Add logging framework, to produce console output when running in the
-			IDE. -->
+		<!-- Add logging framework, to produce console output when running in the IDE. -->
 		<!-- These dependencies are excluded from the application JAR by default. -->
-
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-log4j12</artifactId>
@@ -199,13 +152,16 @@
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
 			<version>1.7.10</version>
+			<scope>runtime</scope>
 		</dependency>
+
 		<dependency>
 			<groupId>log4j</groupId>
 			<artifactId>log4j</artifactId>
 			<version>1.2.17</version>
 			<scope>runtime</scope>
 		</dependency>
+
 		<dependency>
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
@@ -219,7 +175,8 @@
 		<plugins>
 
 			<!-- Java Compiler -->
-
+			<!-- We use the maven-shade plugin to create a fat jar that contains all necessary dependencies. -->
+			<!-- Change the value of <mainClass>...</mainClass> if your program entrypoint changes. -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-shade-plugin</artifactId>
@@ -232,18 +189,24 @@
 						</goals>
 						<configuration>
 							<transformers>
-								<transformer
-
-				implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
 									<mainClass>infore.SDE.Run</mainClass>
-						</transformer>
+								</transformer>
 							</transformers>
+							<filters>
+								<filter>
+									<artifact>*:*</artifact>
+									<excludes>
+										<exclude>META-INF/*.SF</exclude>
+										<exclude>META-INF/*.DSA</exclude>
+										<exclude>META-INF/*.RSA</exclude>
+									</excludes>
+								</filter>
+							</filters>
 						</configuration>
 					</execution>
 				</executions>
 			</plugin>
-
-
 
 
 			<plugin>
@@ -256,76 +219,8 @@
 				</configuration>
 			</plugin>
 
-			<!-- We use the maven-shade plugin to create a fat jar that contains all
-				necessary dependencies. -->
-			<!-- Change the value of <mainClass>...</mainClass> if your program entry
-				point changes. -->
-
 		</plugins>
 
-		<pluginManagement>
-			<plugins>
-
-				<!-- If you want to use Java 8 Lambda Expressions uncomment the following
-					lines -->
-				<plugin>
-					<artifactId>maven-compiler-plugin</artifactId>
-					<configuration>
-						<source>${java.version}</source>
-						<target>${java.version}</target>
-						<compilerId>jdt</compilerId>
-					</configuration>
-					<dependencies>
-						<dependency>
-							<groupId>org.eclipse.tycho</groupId>
-							<artifactId>tycho-compiler-jdt</artifactId>
-							<version>0.21.0</version>
-						</dependency>
-					</dependencies>
-				</plugin>
-
-				<!-- This improves the out-of-the-box experience in Eclipse by resolving
-					some warnings. -->
-				<plugin>
-					<groupId>org.eclipse.m2e</groupId>
-					<artifactId>lifecycle-mapping</artifactId>
-					<version>1.0.0</version>
-					<configuration>
-						<lifecycleMappingMetadata>
-							<pluginExecutions>
-								<pluginExecution>
-									<pluginExecutionFilter>
-										<groupId>org.apache.maven.plugins</groupId>
-										<artifactId>maven-shade-plugin</artifactId>
-										<versionRange>[3.0.0,)</versionRange>
-										<goals>
-											<goal>shade</goal>
-										</goals>
-									</pluginExecutionFilter>
-									<action>
-										<ignore />
-									</action>
-								</pluginExecution>
-								<pluginExecution>
-									<pluginExecutionFilter>
-										<groupId>org.apache.maven.plugins</groupId>
-										<artifactId>maven-compiler-plugin</artifactId>
-										<versionRange>[3.1,)</versionRange>
-										<goals>
-											<goal>testCompile</goal>
-											<goal>compile</goal>
-										</goals>
-									</pluginExecutionFilter>
-									<action>
-										<ignore />
-									</action>
-								</pluginExecution>
-							</pluginExecutions>
-						</lifecycleMappingMetadata>
-					</configuration>
-				</plugin>
-			</plugins>
-		</pluginManagement>
 	</build>
 
 </project>
