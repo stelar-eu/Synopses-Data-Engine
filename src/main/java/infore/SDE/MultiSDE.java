@@ -19,7 +19,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import infore.SDE.transformations.ReduceFlatMap;
 import infore.SDE.transformations.RqRouterFlatMap;
-import infore.SDE.transformations.SDEcoFlatMap;
+import infore.SDE.transformations.SDECoProcessFunction;
 import infore.SDE.transformations.DataRouterCoFlatMap;
 import infore.SDE.messages.Estimation;
 import infore.SDE.messages.Request;
@@ -133,7 +133,7 @@ public class MultiSDE {
 				.flatMap(new DataRouterCoFlatMap()).keyBy((KeySelector<Datapoint, String>) r -> r.getKey());
 
 		DataStream<Estimation> estimationStream = DataStream.connect(SynopsisRequests)
-				.flatMap(new SDEcoFlatMap()).keyBy((KeySelector<Estimation, String>) r -> r.getKey());
+				.process(new SDECoProcessFunction()).keyBy((KeySelector<Estimation, String>) r -> r.getKey());
 
 		//estimationStream.addSink(kp.getProducer());
 		//estimationStream.writeAsText("cm", FileSystem.WriteMode.OVERWRITE);

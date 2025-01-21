@@ -7,12 +7,15 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import infore.SDE.messages.Datapoint;
+import infore.SDE.messages.Message;
+import infore.SDE.sources.KafkaProducerMessage;
 import infore.SDE.sources.kafkaProducerEstimation;
 import infore.SDE.sources.KafkaStringConsumer;
 
 import infore.SDE.transformations.*;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.operators.NoOpOperator;
 import org.apache.flink.streaming.api.collector.selector.OutputSelector;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -20,18 +23,7 @@ import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import infore.SDE.messages.Estimation;
 import infore.SDE.messages.Request;
-import org.apache.flink.streaming.api.functions.ProcessFunction;
-import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
-
-
-/**
- * <br>
- * Implementation code for SDE for INFORE-PROJECT" <br> *
- * ATHENA Research and Innovation Center <br> *
- * Author: Antonis_Kontaxakis <br> *
- * email: adokontax15@gmail.com *
- */
 
 @SuppressWarnings("deprecation")
 public class Run {
@@ -41,31 +33,37 @@ public class Run {
 	private static String kafkaBrokersList;
 	private static int parallelism;
 	private static String kafkaOutputTopic;
+	private static String kafkaLogTopic;
 
 	/**
-	 * @param args Program arguments. You have to provide 4 arguments otherwise
+	 * OutputTag used to mark tuples headed to the logging side output stream. We need to create an {@link OutputTag}
+	 * so we can reference it when catching emitted data from the side output at estimation stream.
+	 */
+	private static final OutputTag<Message> logOutputTag = new OutputTag<Message>("logging-tag") {};
+
+	/**
+	 * @param args Program arguments. You have to provide 6 arguments otherwise
 	 *             DEFAULT values will be used.<br>
 	 *             <ol>
-	 *             <li>args[0]={@link #kafkaDataInputTopic} DEFAULT: "Forex")
-	 *             <li>args[1]={@link #kafkaRequestInputTopic} DEFAULT: "Requests")
-	 *             <li>args[2]={@link #kafkaBrokersList} (DEFAULT: "localhost:9092")
-	 *             <li>args[3]={@link #parallelism} Job parallelism (DEFAULT: "4")
-	 *             <li>args[4]={@link #kafkaOutputTopic} DEFAULT: "OUT")
-	 *             "O10")
+	 *             <li>args[0]={@link #kafkaDataInputTopic} DEFAULT: "data")</li>
+	 *             <li>args[1]={@link #kafkaRequestInputTopic} DEFAULT: "requests")</li>
+	 *             <li>args[2]={@link #kafkaOutputTopic} DEFAULT: "outputs")</li>
+	 *             <li>args[3]={@link #kafkaLogTopic} DEFAULT: "logging")</li>
+	 *             <li>args[4]={@link #kafkaBrokersList} (DEFAULT: "localhost:9092")</li>
+	 *             <li>args[5]={@link #parallelism} Job parallelism (DEFAULT: "4")</li>
 	 *             </ol>
 	 *
 	 */
-
 	public static void main(String[] args) throws Exception {
-		// Initialize Input Parameters
+		// Initialize SDE Parameters
 		initializeParameters(args);
 
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-		env.setParallelism(parallelism);
 
 		KafkaStringConsumer kc = new KafkaStringConsumer(kafkaBrokersList, kafkaDataInputTopic);
 		KafkaStringConsumer requests = new KafkaStringConsumer(kafkaBrokersList, kafkaRequestInputTopic);
 		kafkaProducerEstimation kp = new kafkaProducerEstimation(kafkaBrokersList, kafkaOutputTopic);
+		KafkaProducerMessage kpmsg = new KafkaProducerMessage(kafkaBrokersList, kafkaLogTopic);
 
 		DataStream<String> stringDataStream = env.addSource(kc.getFc());
 		DataStream<String> stringRequestStream = env.addSource(requests.getFc());
@@ -108,16 +106,22 @@ public class Run {
 				                                .flatMap(new DataRouterCoFlatMap()).name("DATA_ROUTER")
 												.keyBy((KeySelector<Datapoint, String>) Datapoint::getKey);
 
-		DataStream<Estimation> estimationStream = dataRouter.keyBy((KeySelector<Datapoint, String>) Datapoint::getKey)
+		SingleOutputStreamOperator<Estimation> estimationStream = dataRouter.keyBy((KeySelector<Datapoint, String>) Datapoint::getKey)
 				.connect(requestRouter.keyBy((KeySelector<Request, String>) Request::getKey))
-				.flatMap(new SDEcoFlatMap()).name("SYNOPSES_MAINTENANCE_CORE");
+				.process(new SDECoProcessFunction()).name("SYNOPSES_MAINTENANCE_CORE");
 
+		DataStream<Message> logs = estimationStream.getSideOutput(logOutputTag);
+		logs.addSink(kpmsg.getProducer());
 
-		SplitStream<Estimation> split = estimationStream.split(new OutputSelector<Estimation>() {
+		DataStream<Estimation> estimationFiltered = estimationStream
+				.map(value -> value) // no-op map
+				.name("ESTIMATION_FILTER");
+
+		SplitStream<Estimation> split = estimationFiltered.split(new OutputSelector<Estimation>() {
+
 			private static final long serialVersionUID = 1L;
 			@Override
 			public Iterable<String> select(Estimation value) {
-				// TODO Auto-generated method stub
 				List<String> output = new ArrayList<>();
 				if (value.getNoOfP() == 1) {
 					output.add("single");
@@ -137,95 +141,26 @@ public class Run {
 		DataStream<Estimation> finalStream = partialOutputStream.flatMap(new GReduceFlatMap()).setParallelism(1);
 
 		finalStream.addSink(kp.getProducer());
-		env.execute("Streaming SDE");
-
-
-		/*
-
-
-		// Define the OutputTags to get side outputs multi or single
-		final OutputTag<Estimation> singleOutputTag = new OutputTag<Estimation>("single") {};
-		final OutputTag<Estimation> multiOutputTag = new OutputTag<Estimation>("multi") {};
-
-		// Main processing function for 'splitting'
-		SingleOutputStreamOperator<Estimation> splitStream = estimationStream.process(
-				new ProcessFunction<Estimation, Estimation>() {
-					private static final long serialVersionUID = 1L;
-					@Override
-					public void processElement(Estimation value, Context ctx, Collector<Estimation> out) throws Exception {
-						if (value.getNoOfP() == 1) {
-							ctx.output(singleOutputTag, value);
-						} else {
-							ctx.output(multiOutputTag, value);
-						}
-					}
-				}
-		);
-
-		// Access the side outputs and get single or multiple streams
-		DataStream<Estimation> singleStream = splitStream.getSideOutput(singleOutputTag);
-		DataStream<Estimation> multiStream = splitStream.getSideOutput(multiOutputTag).keyBy((KeySelector<Estimation, String>) Estimation::getKey);
-
-		// Single stream should be output here
-		singleStream.addSink(kp.getProducer());
-
-
-
-		// Processing continuous for multiple parallel estimation streams in order to reduce them into one
-		DataStream<Estimation> partialReducedOutputStream = multiStream.flatMap(new ReduceFlatMap()).name("REDUCE");
-		// The following flatMap is just a 'logic buffer' running in unitary parallelism
-		DataStream<Estimation> finalStream = partialReducedOutputStream.flatMap(new GReduceFlatMap()).setParallelism(1);
-
-		finalStream.addSink(kp.getProducer());
-		*/
-
-		/*
-		SplitStream<Estimation> split_2 = finalStream.split(new OutputSelector<Estimation>() {
-			private static final long serialVersionUID = 1L;
-			@Override
-			public Iterable<String> select(Estimation value) {
-				List<String> output = new ArrayList<>();
-				if (value.getRequestID() == 7) {
-					output.add("UR");
-				}
-				else {
-					output.add("E");
-				}
-				return output;
-			}
-		});
-
-		DataStream<Estimation> UR = split_2.select("UR");
-		DataStream<Estimation> E = split_2.select("E");
-		//E.addSink(kp.getProducer());
-		//UR.addSink(pRequest.getProducer());
-		*/
-
-
 		env.execute("SynopsisDataEngine");
-
 	}
 
 	private static void initializeParameters(String[] args) {
-
 		if (args.length > 4) {
 			System.out.println("[INFO] User defined parameters");
-			//User defined program arguments
 			kafkaDataInputTopic = args[0];
 			kafkaRequestInputTopic = args[1];
 			kafkaOutputTopic = args[2];
-
-			kafkaBrokersList = args[3];
-			parallelism = Integer.parseInt(args[4]);
+			kafkaLogTopic = args[3];
+			kafkaBrokersList = args[4];
+			parallelism = Integer.parseInt(args[5]);
 		}else{
 			System.out.println("[INFO] Default parameters");
-			//Default values
-			kafkaDataInputTopic = "6FIN500";
-			kafkaRequestInputTopic = "request_topic";
-			kafkaOutputTopic = "estimation_topic";
-
-			kafkaBrokersList = "192.168.1.104:9093,192.168.1.104:9094";
-			parallelism = 4;
+			kafkaDataInputTopic = "data";
+			kafkaRequestInputTopic = "requests";
+			kafkaOutputTopic = "outputs";
+			kafkaLogTopic = "logging";
+			kafkaBrokersList = "sde.petrounetwork.gr:19092,sde.petrounetwork.gr:29092";
+			parallelism = 2;
 		}
 	}
 }

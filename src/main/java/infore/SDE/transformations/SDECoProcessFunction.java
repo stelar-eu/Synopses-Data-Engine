@@ -7,18 +7,16 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import infore.SDE.messages.*;
 import infore.SDE.storage.StorageManager;
-import infore.SDE.storage.StorageManagerMinIO;
 import lib.WDFT.controlBucket;
 import lib.WLSH.Bucket;
 import infore.SDE.synopses.*;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
+import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
+import org.apache.flink.util.OutputTag;
 import org.apache.flink.util.Collector;
-import infore.SDE.messages.Estimation;
-import infore.SDE.messages.Request;
-import infore.SDE.messages.Datapoint;
-import org.apache.hadoop.fs.shell.Count;
 
 /**
  * The SDEcoFlatMap is used after the connection of the dataStream with the requestStream and after
@@ -27,7 +25,7 @@ import org.apache.hadoop.fs.shell.Count;
  * The shared state allows both streams to have access to synopses maintenance ArrayLists and perform
  * add or put operations on them.
  */
-public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Estimation> {
+public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, Estimation> {
 
 	private static final long serialVersionUID = 1L;
 	/**
@@ -38,6 +36,12 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 	 * HashMap for storing continuous synopses of specific DatasetKey
 	 */
 	private HashMap<String,ArrayList<ContinuousSynopsis>> MC_Synopses = new HashMap<>();
+
+	/**
+	 * OutputTag used to mark tuples headed to the logging side output stream. We need to create an {@link OutputTag}
+	 * so we can reference it when emitting data to a side output
+	 */
+	private static final OutputTag<Message> logOutputTag = new OutputTag<Message>("logging-tag") {};
 
 
 	private int pId;
@@ -50,7 +54,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 	 * @throws JsonProcessingException
 	 */
 	@Override
-	public void flatMap1(Datapoint node, Collector<Estimation> collector) throws JsonProcessingException {
+	public void processElement1(Datapoint node, Context ctx,  Collector<Estimation> collector) throws JsonProcessingException {
 		//Get the possible synopses (based on the node key, dataSetKey) in which
 		//the new Datapoint should be included
 		ArrayList<Synopsis>  Synopses =  M_Synopses.get(node.getKey());
@@ -102,7 +106,7 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 	 * @throws Exception
 	 */
 	@Override
-	public void flatMap2(Request rq, Collector<Estimation> collector) throws Exception {
+	public void processElement2(Request rq, Context ctx, Collector<Estimation> collector) throws Exception {
 
 		System.out.println("[INFO] Will handle request: "+rq.toString());
 
@@ -295,23 +299,49 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 				e.printStackTrace();
 			}
 		}
-		else if(rq.getRequestID() == 1000){
-			try{
-				StringBuilder builder = new StringBuilder();
-				for(String datasetKey : M_Synopses.keySet()){
-					builder.append("[ Synopses maintained for Key: "+datasetKey+ " ]");
-					builder.append("\n");
-					for(Synopsis s: M_Synopses.get(datasetKey)){
-						builder.append("\t Synopsis: [ UID: "+s.getSynopsisID()+ " | Dataset Key: "+datasetKey+ " | Type: "+s.getClass().getSimpleName()+ " ]");
-						builder.append("\n");
+		/*
+		 * Request for showing metadata for all maintained synopsis in the SDE.
+		 * Filters on the key can apply.
+		 */
+		if (rq.getRequestID() == 1000) {
+			try {
+				// A map to group synopses by dataset key
+				Map<String, List<Map<String, Object>>> groupedSynopses = new HashMap<>();
+
+				for (String datasetKey : M_Synopses.keySet()) {
+					// Create a list to hold all synopses for the current datasetKey
+					List<Map<String, Object>> synopsisList = new ArrayList<>();
+
+					for (Synopsis s : M_Synopses.get(datasetKey)) {
+						// Create a map for each synopsis
+						Map<String, Object> synopsisMap = new HashMap<>();
+						synopsisMap.put("id", s.getSynopsisID());
+						synopsisMap.put("key", datasetKey);
+						synopsisMap.put("type", s.getClass().getSimpleName());
+						synopsisMap.put("stream", rq.getStreamID());
+
+						synopsisList.add(synopsisMap);
 					}
+
+					// Add the list of synopses to the grouped map under the datasetKey
+					groupedSynopses.put(datasetKey, synopsisList);
 				}
-				System.out.println(builder.toString());
-			}catch(Exception e){
+
+				// Create the output map with the grouped synopses
+				Map<String, Object> outputMap = new HashMap<>();
+				outputMap.put("synopses", groupedSynopses);
+
+				// Create and output the Message object
+				ctx.output(
+						logOutputTag,
+						new Message(MessageType.RESPONSE, outputMap, rq.getUID() + "_" + rq.getKey(), rq.getRequestID())
+				);
+
+			} catch (Exception e) {
 				e.printStackTrace();
 			}
-
 		}
+
 		/**
 		 * Request ID:1 --> Add synopsis with keyed partitioning (non continuous)
 		 * Request ID:4 --> Add synopsis with random partitioning (non continuous)
@@ -668,9 +698,4 @@ public class SDEcoFlatMap extends RichCoFlatMapFunction<Datapoint, Request, Esti
 			}
 		}
 	}
-
-	public void open(Configuration config)  {
-	 	pId = getRuntimeContext().getIndexOfThisSubtask();
-	}
-
 }
