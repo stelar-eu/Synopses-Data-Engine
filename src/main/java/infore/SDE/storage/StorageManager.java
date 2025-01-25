@@ -6,11 +6,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import infore.SDE.synopses.AMSsynopsis;
 import infore.SDE.synopses.Synopsis;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.core.ResponseInputStream;
 
@@ -23,23 +25,114 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.net.URI;
 
 
 public class StorageManager {
 
     private static final String BUCKET_NAME = "sde-e";
-    private static final Region REGION = Region.EU_NORTH_1;
-    private static final String AWS_ACCESS_KEY_ID = "AKIAS2XH2Y6RWKPC3QHH";
-    private static final String AWS_SECRET_ACCESS_KEY = "";
+    private static final String MINIO_ENDPOINT = "https://minio.stelar.gr";
+    private static final String AWS_ACCESS_KEY_ID = "x4eGSqdNok8MmQnZhCEH";
+    private static final String AWS_SECRET_ACCESS_KEY = "LfX2pr89DV983O4MueIVxJoUzA9XI7RRiagY5Ci2";
 
-    // Parse the input JSON string into a JsonNode
-    private static final S3Client s3 =  S3Client.builder()
-            .region(REGION)
-            .credentialsProvider(StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)))
-            .build();
 
+    /**
+        The instance of the S3 client connected to either AWS S3 or a MinIO instance.
+     */
+    private static S3Client s3 = null;
+
+    /**
+        Flag to specify whether the StorageManager is initialized and connected to an Object Store.
+     */
+    private static boolean initialized = false;
+
+    /**
+        An ObjectMapper instance used parse the METADATA JSON files.
+     */
     private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Initialize the StorageManager with hardcoded parameters
+     */
+    public static void initialize() {
+        StorageManager.s3 = S3Client.builder()
+                .endpointOverride(URI.create(MINIO_ENDPOINT))
+                .region(Region.US_EAST_1)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build())
+                .build();
+        initialized = true;
+    }
+
+    /**
+     * Initialize the StorageManager to AWS S3 with provided parameters of bucket and region with static credentials
+     * @param bucketName
+     * @param accessKey
+     * @param secretKey
+     * @param region
+     */
+    public static void initialize(String bucketName, String accessKey, String secretKey, Region region) {
+        StorageManager.s3 = S3Client.builder()
+                .region(region) // AWS S3 resolves the endpoint automatically based on the region
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey))) // Use static credentials
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(false) // Use virtual-hosted-style access for AWS S3
+                        .build())
+                .build();
+        initialized = true;
+    }
+
+
+    /**
+     * Initialize the StorageManager to a MinIO instance with provided parameters using static credentials.
+     * @param minioEndpoint The endpoint in which the MinIO API listens to. Proxied Endpoints are not supported. (/minio)
+     * @param accessKey The AccessKey provided as part of a static set of credentials.
+     * @param secretKey The SecretKey provided as part of a static set of credentials.
+     */
+    public static void initialize(String minioEndpoint, String accessKey, String secretKey){
+        StorageManager.s3 = S3Client.builder()
+                .endpointOverride(URI.create(minioEndpoint))
+                .region(Region.US_EAST_1)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKey, secretKey)))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build())
+                .build();
+        initialized = true;
+    }
+
+    /**
+     * Initialize the StorageManager to a MinIO instance with provided parameters using STS credentials.
+     * @param minioEndpoint The endpoint in which the MinIO API listens to. Proxied Endpoints are not supported. (/minio)
+     * @param accessKey The AccessKey provided as part of a temporary set of credentials.
+     * @param secretKey The SecretKey provided as part of a temporary set of credentials.
+     * @param sessionToken The SessionToken provided as part of temporary set of credentials.
+     */
+    public static void initialize(String minioEndpoint, String accessKey, String secretKey, String sessionToken) {
+        StorageManager.s3 = S3Client.builder()
+                .endpointOverride(URI.create(minioEndpoint))
+                .region(Region.US_EAST_1)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsSessionCredentials.create(accessKey, secretKey, sessionToken)))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build())
+                .build();
+        initialized = true;
+    }
+
+    /**
+     * A check for whether the StorageManager has been connected to an Object Store or not.
+     * @return boolean
+     */
+    public static boolean isInitialized(){
+        return initialized;
+    }
 
     /**
      * Abstracts the whole process of snapshotting a synopsis and generating a new version of
@@ -297,7 +390,7 @@ public class StorageManager {
      * @return The JSON metadata in form of String.
      */
     public static String getSynopsisMetadata(int uid, String datasetKey){
-        String synMetadataKey = "syn_"+uid+"_"+datasetKey+".METADATA.json";
+        String synMetadataKey = "syn_"+uid+"_"+datasetKey+".METADATA";
         String metadata = getObjectFromS3(synMetadataKey);
         return metadata;
     }
@@ -371,7 +464,7 @@ public class StorageManager {
      *         snapshotSynopsis()
      */
     public static int buildOrUpdateSynopsisMetadata(Synopsis s, String datasetKey) throws IOException {
-        String synMetadataKey = "syn_"+s.getSynopsisID()+"_"+datasetKey+".METADATA.json";
+        String synMetadataKey = "syn_"+s.getSynopsisID()+"_"+datasetKey+".METADATA";
         String synopsisStorageKeyPrefix = "syn_"+ s.getSynopsisID()+"_"+datasetKey+"_";
 
         // Try to get the metadata
