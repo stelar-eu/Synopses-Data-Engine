@@ -12,6 +12,7 @@ import infore.SDE.sources.KafkaProducerMessage;
 import infore.SDE.sources.kafkaProducerEstimation;
 import infore.SDE.sources.KafkaStringConsumer;
 
+import infore.SDE.storage.StorageManager;
 import infore.SDE.transformations.*;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -108,7 +109,7 @@ public class Run {
 
 		SingleOutputStreamOperator<Estimation> estimationStream = dataRouter.keyBy((KeySelector<Datapoint, String>) Datapoint::getKey)
 				.connect(requestRouter.keyBy((KeySelector<Request, String>) Request::getKey))
-				.process(new SDECoProcessFunction()).name("SYNOPSES_MAINTENANCE_CORE");
+				.process(new SDECoProcessFunction(false)).name("SYNOPSES_MAINTENANCE_CORE");
 
 		DataStream<Message> logs = estimationStream.getSideOutput(logOutputTag);
 		logs.addSink(kpmsg.getProducer());
@@ -145,7 +146,8 @@ public class Run {
 	}
 
 	private static void initializeParameters(String[] args) {
-		if (args.length > 4) {
+		String s3Host, s3Region, s3AccessKey, s3SecretKey, s3Bucket;
+		if (args.length > 5) {
 			System.out.println("[INFO] User defined parameters");
 			kafkaDataInputTopic = args[0];
 			kafkaRequestInputTopic = args[1];
@@ -153,8 +155,18 @@ public class Run {
 			kafkaLogTopic = args[3];
 			kafkaBrokersList = args[4];
 			parallelism = Integer.parseInt(args[5]);
-		}else{
+			if (args.length > 10) {
+				s3Host = args[6];
+				s3Region = args[7];
+				s3AccessKey = args[8];
+				s3SecretKey = args[9];
+				s3Bucket = args[10];
+				StorageManager.initialize();
+			}
+		} else{
 			System.out.println("[INFO] Default parameters");
+			System.out.println("[INFO] Initializing StorageManager to default parameters");
+			StorageManager.initialize();
 			kafkaDataInputTopic = "data";
 			kafkaRequestInputTopic = "requests";
 			kafkaOutputTopic = "outputs";

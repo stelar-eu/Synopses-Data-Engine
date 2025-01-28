@@ -133,7 +133,7 @@ public class MultiSDE {
 				.flatMap(new DataRouterCoFlatMap()).keyBy((KeySelector<Datapoint, String>) r -> r.getKey());
 
 		DataStream<Estimation> estimationStream = DataStream.connect(SynopsisRequests)
-				.process(new SDECoProcessFunction()).keyBy((KeySelector<Estimation, String>) r -> r.getKey());
+				.process(new SDECoProcessFunction(false)).keyBy((KeySelector<Estimation, String>) r -> r.getKey());
 
 		//estimationStream.addSink(kp.getProducer());
 		//estimationStream.writeAsText("cm", FileSystem.WriteMode.OVERWRITE);
