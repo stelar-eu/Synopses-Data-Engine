@@ -15,9 +15,21 @@ public class Request implements Serializable{
 	private String StreamID; //the stream ID
 	private String[] Param; // the parameters of the Request
 	private int NoOfP; // Number of parallelism
+	private String externalUID; // Unique Identifier supplied externally to mimic classic API behaviour
 
-		public Request(){
+	public Request(){
 
+	}
+
+	public Request(String key, int requestID, int synopsisID, int uID, String streamID, String[] param, int noOfP, String externalUID) {
+		this.DataSetkey = key;
+		RequestID = requestID;
+		SynopsisID = synopsisID;
+		UID = uID;
+		StreamID = streamID;
+		Param = param;
+		NoOfP = noOfP;
+		this.externalUID = externalUID;
 	}
 
 	public Request(String key, int requestID, int synopsisID, int uID, String streamID, String[] param, int noOfP) {
@@ -100,6 +112,14 @@ public class Request implements Serializable{
 		return UID;
 	}
 
+	public String getExternalUID() {
+		return externalUID;
+	}
+
+	public void setExternalUID(String externalUID) {
+		this.externalUID = externalUID;
+	}
+
 	public void setUID(int uID) {
 		UID = uID;
 	}
@@ -114,6 +134,16 @@ public class Request implements Serializable{
 
 	public String[] getParam() {
 		return Param;
+	}
+
+	public String getParam(int index) {
+		String toReturn;
+		try {
+			toReturn = Param[index];
+			return toReturn;
+		} catch (Exception e){
+			return null;
+		}
 	}
 
 	public void setParam(String[] param) {

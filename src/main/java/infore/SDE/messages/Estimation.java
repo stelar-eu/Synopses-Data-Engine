@@ -19,6 +19,7 @@ public class Estimation extends SDEOutput implements Serializable {
 	private int SynopsisID; // Synopsis type
 	private String[] Param; // the parameters of the Request
 	private int NoOfP; // number of parallelism
+	private String relatedRequestIdentifier;
 	
 	public Estimation(int uID, String estimationkey, int requestID, int synopsisID, String key, Object estimation, String[] param,
 			int noOfP) {
@@ -95,10 +96,14 @@ public class Estimation extends SDEOutput implements Serializable {
     }
 
 
+	public String getRelatedRequestIdentifier() { return relatedRequestIdentifier; }
 
-    public String getEstimationkey() {
+	public void setRelatedRequestIdentifier(String relatedRequestIdentifier) { this.relatedRequestIdentifier = relatedRequestIdentifier; }
+
+	public String getEstimationkey() {
 		return estimationkey;
 	}
+
 	public String getStreamID() {
 		return StreamID;
 	}
@@ -106,6 +111,7 @@ public class Estimation extends SDEOutput implements Serializable {
 	public void setStreamID(String streamID) {
 		StreamID = streamID;
 	}
+
 	public void setEstimationkey(String estimationkey) {
 		this.estimationkey = estimationkey;
 	}

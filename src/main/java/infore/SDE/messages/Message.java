@@ -19,6 +19,8 @@ public class Message extends SDEOutput {
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "dd-MM-yyyy HH:mm:ss", timezone = "UTC")
     private Date timestamp;
+    private String key;
+    private int parallelism;
     private String relatedRequestIdentifier;
     private MessageType messageType;
 
@@ -64,7 +66,7 @@ public class Message extends SDEOutput {
     }
 
     /**
-     * Constructor with all fields.
+     * Constructor with partial fields.
      *
      * @param messageType               the type of the message
      * @param content                   the content (String or Map)
@@ -79,7 +81,39 @@ public class Message extends SDEOutput {
         this.requestTypeID = requestTypeID;
     }
 
-    // ---- Getters / Setters ----
+    /**
+     * Constructor with all fields.
+     *
+     * @param messageType               the type of the message
+     * @param content                   the content (String or Map)
+     * @param relatedRequestIdentifier  the related request identifier
+     * @param requestTypeID             the request type ID
+     */
+    public Message(MessageType messageType, Object content, String relatedRequestIdentifier, int requestTypeID, String key, int parallelism) {
+        this.timestamp = new Date();
+        this.messageType = messageType;
+        this.content = content;
+        this.relatedRequestIdentifier = relatedRequestIdentifier;
+        this.requestTypeID = requestTypeID;
+        this.key = key;
+        this.parallelism = parallelism;
+    }
+
+    public String getKey() {
+        return key;
+    }
+
+    public void setKey(String key) {
+        this.key = key;
+    }
+
+    public void setParallelism(int parallelism) {
+        this.parallelism = parallelism;
+    }
+
+    public void setTimestamp(Date timestamp) {
+        this.timestamp = timestamp;
+    }
 
     public Date getTimestamp() {
         return timestamp;
@@ -95,6 +129,10 @@ public class Message extends SDEOutput {
 
     public Object getContent() {
         return content;
+    }
+
+    public int getParallelism(){
+        return parallelism;
     }
 
     public int getRequestTypeID() {
@@ -142,6 +180,6 @@ public class Message extends SDEOutput {
 
     @Override
     public int getNoOfP() {
-        return 1;
+        return parallelism;
     }
 }
