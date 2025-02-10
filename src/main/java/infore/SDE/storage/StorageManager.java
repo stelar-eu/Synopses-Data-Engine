@@ -30,10 +30,10 @@ import java.net.URI;
 
 public class StorageManager {
 
-    private static final String BUCKET_NAME = "sde-e";
+    private static final String BUCKET_NAME = "sde-bucket";
     private static final String MINIO_ENDPOINT = "https://minio.stelar.gr";
-    private static final String AWS_ACCESS_KEY_ID = "x4eGSqdNok8MmQnZhCEH";
-    private static final String AWS_SECRET_ACCESS_KEY = "LfX2pr89DV983O4MueIVxJoUzA9XI7RRiagY5Ci2";
+    private static final String AWS_ACCESS_KEY_ID = "dLTI3bbOHT83IwXoWZod";
+    private static final String AWS_SECRET_ACCESS_KEY = "EQ8XNI9htSUCrxeWbFNfLWzB78J6i17oIZmqJ3yG";
 
 
     /**
@@ -298,7 +298,7 @@ public class StorageManager {
      */
     public static <T extends Synopsis> T loadSynopsisLatestSnapshot(String datasetKey, int uid, Class<T> synopsisClass) {
         try {
-            String snapshotKey = getSynopsisVersions(uid, datasetKey).get(0);
+            String snapshotKey = getSynopsisVersions(uid, datasetKey, false).get(0);
             return deserializeSynopsisFromS3(snapshotKey, synopsisClass);
         }catch (Exception e){
             e.printStackTrace();
@@ -429,10 +429,12 @@ public class StorageManager {
      * a list of Strings in descending order (from latest to oldest).
      * @param uid The synopsis unique identifier
      * @param datasetKey The request dataset key parameter
+     * @param withBucketAndProtocol A boolean flag on whether to include or not the
+     *                              bucket name and the protocol (Mainly used for STELAR KLMS)
      * @return List of Strings containing all the versions of the synopsis
      * @throws IOException
      */
-    public static List<String> getSynopsisVersions(int uid, String datasetKey) throws IOException {
+    public static List<String> getSynopsisVersions(int uid, String datasetKey, boolean withBucketAndProtocol) throws IOException {
         String jsonString = getSynopsisMetadata(uid, datasetKey);
         // Parse the input JSON string into a JsonNode
         ObjectNode rootNode = (ObjectNode) objectMapper.readTree(jsonString);
@@ -444,6 +446,9 @@ public class StorageManager {
             String fieldName = fieldNames.next();
             JsonNode versionNode = versionsNode.get(fieldName);
             String fileName = versionNode.get("file_name").asText();
+            if(withBucketAndProtocol){
+                fileName = "s3://"+ BUCKET_NAME + "/"+ fileName;
+            }
             fileNames.add(fileName);
         }
 

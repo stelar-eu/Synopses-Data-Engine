@@ -8,6 +8,7 @@ import java.util.List;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import infore.SDE.messages.Datapoint;
 import infore.SDE.messages.Message;
+import infore.SDE.reduceFunctions.MessageReducer;
 import infore.SDE.sources.KafkaProducerMessage;
 import infore.SDE.sources.kafkaProducerEstimation;
 import infore.SDE.sources.KafkaStringConsumer;
@@ -92,7 +93,7 @@ public class Run {
 						ObjectMapper objectMapper = new ObjectMapper();
 
 						Request request = objectMapper.readValue(node, Request.class);
-						return  request;
+						return request;
 					}
 				}).name("REQUEST_SOURCE_STREAM").keyBy((KeySelector<Request, String>) Request::getKey);
 
@@ -109,67 +110,88 @@ public class Run {
 
 		SingleOutputStreamOperator<Estimation> estimationStream = dataRouter.keyBy((KeySelector<Datapoint, String>) Datapoint::getKey)
 				.connect(requestRouter.keyBy((KeySelector<Request, String>) Request::getKey))
-				.process(new SDECoProcessFunction(false)).name("SYNOPSES_MAINTENANCE_CORE");
+				.process(new SDECoProcessFunction(true)).name("SYNOPSES_MAINTENANCE_CORE");
 
+		// Get Messages emitted in the side output of the estimation stream by enforcing the tag.
 		DataStream<Message> logs = estimationStream.getSideOutput(logOutputTag);
-		logs.addSink(kpmsg.getProducer());
+
+		// Apply no-op map to avoid deprecation errors in during split later.
+		DataStream<Message> logsFiltered = logs
+				.map(value -> value) // no-op map
+				.name("LOG_FILTER");
+
+		// Split the Messages to those having unitary parallelism and to those that were generated with parallelism > 1.
+		SplitStream<Message> logsSplit = logsFiltered.split(new OutputSelector<Message>() {
+			private static final long serialVersionUID = 1L;
+			@Override
+			public Iterable<String> select(Message value) {
+				List<String> output = new ArrayList<>();
+				if (value.getParallelism() == 1) {
+					output.add("single");
+				} else {
+					output.add("parallel");
+				}
+				return output;
+			}
+		});
+
+		// Emit, directly to logging topic, messages with unitary parallelism without the need to reduce them.
+		DataStream<Message> singleLogs = logsSplit.select("single");
+		singleLogs.addSink(kpmsg.getProducer());
+
+		// Reduce parallel messages into single message per external request identifier
+		DataStream<Message> parallelMessages = logsSplit.select("parallel");
+
+		DataStream<Message> aggregatedMessages = parallelMessages
+				.keyBy(Message::getRelatedRequestIdentifier)
+				.process(new MessageReducer()).setParallelism(1).name("MESSAGE_REDUCER");
+
+		aggregatedMessages.addSink(kpmsg.getProducer());
 
 		DataStream<Estimation> estimationFiltered = estimationStream
-				.map(value -> value) // no-op map
+				.map(value -> value) // no-op mapm
 				.name("ESTIMATION_FILTER");
 
 		SplitStream<Estimation> split = estimationFiltered.split(new OutputSelector<Estimation>() {
-
 			private static final long serialVersionUID = 1L;
 			@Override
 			public Iterable<String> select(Estimation value) {
 				List<String> output = new ArrayList<>();
 				if (value.getNoOfP() == 1) {
 					output.add("single");
-				}
-				else {
-					output.add("multy");
+				} else {
+					output.add("parallel");
 				}
 				return output;
 			}
 		});
 
 		DataStream<Estimation> single = split.select("single");
-		DataStream<Estimation> multy = split.select("multy").keyBy((KeySelector<Estimation, String>) Estimation::getKey);
 		single.addSink(kp.getProducer());
-		DataStream<Estimation> partialOutputStream = multy.flatMap(new ReduceFlatMap()).name("REDUCE");
 
+		DataStream<Estimation> parallel = split.select("parallel").keyBy((KeySelector<Estimation, String>) Estimation::getKey);
+		DataStream<Estimation> partialOutputStream = parallel.flatMap(new ReduceFlatMap()).name("REDUCE");
 		DataStream<Estimation> finalStream = partialOutputStream.flatMap(new GReduceFlatMap()).setParallelism(1);
 
 		finalStream.addSink(kp.getProducer());
+
 		env.execute("SynopsisDataEngine");
 	}
 
 	private static void initializeParameters(String[] args) {
-		String s3Host, s3Region, s3AccessKey, s3SecretKey, s3Bucket;
 		if (args.length > 5) {
-			System.out.println("[INFO] User defined parameters");
+			System.out.println("[INFO] Environment defined parameters");
 			kafkaDataInputTopic = args[0];
 			kafkaRequestInputTopic = args[1];
 			kafkaOutputTopic = args[2];
 			kafkaLogTopic = args[3];
 			kafkaBrokersList = args[4];
 			parallelism = Integer.parseInt(args[5]);
-			if (args.length > 10) {
-				s3Host = args[6];
-				s3Region = args[7];
-				s3AccessKey = args[8];
-				s3SecretKey = args[9];
-				s3Bucket = args[10];
-				StorageManager.initialize();
-			}
 		} else{
 			System.out.println("[INFO] Default parameters");
-			System.out.println("[INFO] Initializing StorageManager to default parameters");
-			StorageManager.initialize();
 			kafkaDataInputTopic = "data";
-			kafkaRequestInputTopic = "requests";
-			kafkaOutputTopic = "outputs";
+			kafkaRequestInputTopic = "request";
+			kafkaOutputTopic = "estimation";
 			kafkaLogTopic = "logging";
 			kafkaBrokersList = "sde.petrounetwork.gr:19092,sde.petrounetwork.gr:29092";
 			parallelism = 2;

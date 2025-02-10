@@ -5,6 +5,8 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +26,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.co.CoProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
+import org.apache.hadoop.hdfs.server.common.Storage;
 
 /**
  * SDECoProcessFunction is a CoProcessFunction that consumes two keyed streams:
@@ -66,6 +69,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 	 */
 	private final boolean debugFlag;
 
+
+
 	/**
 	 * Optional processor ID (just a demonstration of how you might handle multi-parallel operators).
 	 */
@@ -88,13 +93,9 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 	 * @param info    The string to either log or print to stdout.
 	 * @param request (Optional) if we want to attach the request ID/key to the message. If null, we skip request-based fields.
 	 */
-	private void logOrOutput(Context ctx, String level, String info, Request request) {
-		// Build content for side output
-		Map<String, Object> content = new HashMap<>();
-		content.put("level", level);
-		content.put("message", info);
-		content.put("timestamp", System.currentTimeMillis());
+	private void logOrOutput(Context ctx, String level, Object info, Request request) {
 
+		// Build content for side output
 		String uidKey = "";
 		int reqId = -1;
 		if (request != null) {
@@ -105,8 +106,15 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 			uidKey = "NO_REQUEST";
 		}
 
+		MessageType type = MessageType.RESPONSE;
+
+		if (level.equals("INFO")) {
+			type = MessageType.RESPONSE;
+		} else if (level.equals("ERROR")){
+			type = MessageType.ERROR;
+		}
 		// Create the Message object
-		Message msg = new Message(MessageType.RESPONSE, content, uidKey, reqId);
+		Message msg = new Message(type, info, request.getExternalUID(), reqId, request.getDataSetkey(), request.getNoOfP());
 
 		// Emit to side output
 		ctx.output(logOutputTag, msg);
@@ -115,6 +123,19 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 		if (debugFlag) {
 			System.out.println("[" + level + "] " + info);
 		}
+	}
+
+	private String maskKey(String input){
+		//  _<digits>_KEYED_<digits>  OR  _<digits>_RANDOM_<digits>
+		String regex = "_\\d+_KEYED_\\d+|_\\d+_RANDOM_\\d+";
+		Pattern pattern = Pattern.compile(regex);
+		Matcher matcher = pattern.matcher(input);
+
+		if (matcher.find()) {
+			// Keep only the part of the string before the match
+			return input.substring(0, matcher.start());
+		}
+		return input; // If no match, return the original string
 	}
 
 	/**
@@ -143,7 +164,6 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 			M_Synopses.put(node.getKey(), Synopses);
 		}
 
-		//Get the CONTINUOUS synopses for this key
 		ArrayList<ContinuousSynopsis> C_Synopses = MC_Synopses.get(node.getKey());
 		if (C_Synopses != null) {
 			for (ContinuousSynopsis c_ski : C_Synopses) {
@@ -152,6 +172,7 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 				if (e != null && e.getEstimation() != null) {
 					collector.collect(e);
 				}
+				//Get the CONTINUOUS synopses for this key
 			}
 			MC_Synopses.put(node.getKey(), C_Synopses);
 		}
@@ -169,7 +190,7 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 	public void processElement2(Request rq, Context ctx, Collector<Estimation> collector) throws Exception {
 
 		// Provide some logging/side-output
-		logOrOutput(ctx, "INFO", "Will handle request: " + rq.toString(), rq);
+		// logOrOutput(ctx, "INFO", "Will handle request: " + rq.toString(), rq);
 
 		//Get synopses for the key
 		ArrayList<Synopsis> Synopses = M_Synopses.get(rq.getKey());
@@ -182,33 +203,56 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 			if (Synopses != null) {
 				for (Synopsis s : Synopses) {
 					if (s.getSynopsisID() == rq.getUID()) {
-						if (StorageManager.snapshotSynopsis(s, rq.getKey())) {
-							logOrOutput(ctx, "INFO", "Snapshot Synopsis: [ UID: " + s.getSynopsisID()
-									+ " | DatasetKey:" + rq.getKey()
-									+ " | Digestion timestamp: " + LocalDateTime.now().toString() + " ]", rq);
+						if(!StorageManager.isInitialized()){
+							logOrOutput(ctx, "ERROR", "StorageManager is not initialized. Aborting snapshot capture!", rq);
 							snapshotFlag = true;
-						} else {
-							logOrOutput(ctx, "ERROR", "Snapshot Synopsis Failed: [ Internal Storage Error ]", rq);
+						}else {
+							if (StorageManager.snapshotSynopsis(s, rq.getKey())) {
+								logOrOutput(ctx, "INFO", "Snapshot Synopsis Success, UID: " + s.getSynopsisID()
+										+ " | Snapshot at: " + LocalDateTime.now().toString(), rq);
+								snapshotFlag = true;
+							} else {
+								logOrOutput(ctx, "ERROR", "Snapshot Synopsis Failed: [ Internal Storage Error ]", rq);
+							}
 						}
 					}
 				}
 			}
 			if(!snapshotFlag){
-				logOrOutput(ctx, "ERROR",
-						"Snapshot Synopsis Failed: Could not find synopsis with details: [ UID: " + rq.getUID() + " | DatasetKey: " + rq.getKey() + " ]",
-						rq);
+				logOrOutput(ctx, "ERROR", "Snapshot Synopsis Failed: Could not find synopsis with UID: " + rq.getUID(), rq);
 			}
 		}
 		else if (rq.getRequestID() == 101) {
 			// Change the Object Store on the fly (not implemented in snippet)
-			// Just logging
-			logOrOutput(ctx, "INFO", "Request 101: Change object store is not fully implemented here.", rq);
+
+			try {
+				String type = rq.getParam(0).toString();
+				if(type.equals("sts")){
+					String accessKey = rq.getParam(1).toString();
+					String secretKey = rq.getParam(2).toString();
+					String sessionToken = rq.getParam(3).toString();
+					String endpoint = rq.getParam(4).toString();
+					StorageManager.initialize(endpoint, accessKey, secretKey, sessionToken);
+					logOrOutput(ctx, "INFO", "Updated StorageManager Credentials", rq);
+				}
+			} catch (Exception e){
+				logOrOutput(ctx, "ERROR", "Exception occurred while configuring StorageManager : "+e, rq);
+			}
+		}
+		else if (rq.getRequestID() == 301) {
+			// Return the snapshots of a given synopsis
+			try {
+				List<String> snapshots = StorageManager.getSynopsisVersions(rq.getUID(), rq.getKey(), true);
+				logOrOutput(ctx, "INFO", snapshots.toString(), rq);
+			} catch (Exception e){
+				logOrOutput(ctx, "ERROR", "Exception occurred while configuring StorageManager : "+e, rq);
+			}
 		}
 		else if (rq.getRequestID() == 201 || rq.getRequestID() == 200) {
 			// Load snapshot into currently running instance of synopsis
 			// Then replace the existing instance in M_Synopses
 			if (Synopses == null) {
-				logOrOutput(ctx, "WARN", "No synopses exist for key: " + rq.getKey() + "; cannot load snapshot.", rq);
+				logOrOutput(ctx, "WARN", "No synopses exist for this key; cannot load snapshot.", rq);
 				return;
 			}
 
@@ -219,9 +263,13 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					if(rq.getRequestID() == 201) {
 						// load specific version
 						loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), CountMin.class, Integer.valueOf(rq.getParam()[0]));
+						loadedObj.setParallelism(rq.getNoOfP());
+						loadedObj.setKey(rq.getDataSetkey());
 					} else {
 						// load latest version
 						loadedObj = StorageManager.loadSynopsisLatestSnapshot(rq.getKey(), rq.getUID(), CountMin.class);
+						loadedObj.setParallelism(rq.getNoOfP());
+						loadedObj.setKey(rq.getDataSetkey());
 					}
 
 					for (int i = 0; i < Synopses.size(); i++) {
@@ -234,11 +282,7 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 									? String.valueOf(StorageManager.getSynopsisLatestVersionNumber(rq.getUID(), rq.getKey()))
 									: rq.getParam()[0];
 
-							logOrOutput(ctx, "INFO",
-									"Loaded snapshot of synopsis: [ Version : v" + vLoaded
-											+ " --> UID: " + rq.getUID()
-											+ " | DatasetKey:" + rq.getKey()
-											+ " | Type: CountMin ]", rq);
+							logOrOutput(ctx, "INFO", "Loaded snapshot of synopsis: Version : v" + vLoaded + " UID: " + rq.getUID() + " Type: CountMin ", rq);
 							break;
 						}
 					}
@@ -255,8 +299,12 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					Bloomfilter loadedObj = null;
 					if(rq.getRequestID() == 201) {
 						loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), Bloomfilter.class, Integer.valueOf(rq.getParam()[0]));
+						loadedObj.setParallelism(rq.getNoOfP());
+						loadedObj.setKey(rq.getDataSetkey());
 					} else {
 						loadedObj = StorageManager.loadSynopsisLatestSnapshot(rq.getKey(), rq.getUID(), Bloomfilter.class);
+						loadedObj.setParallelism(rq.getNoOfP());
+						loadedObj.setKey(rq.getDataSetkey());
 					}
 
 					for (int i = 0; i < Synopses.size(); i++) {
@@ -269,11 +317,7 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 									? String.valueOf(StorageManager.getSynopsisLatestVersionNumber(rq.getUID(), rq.getKey()))
 									: rq.getParam()[0];
 
-							logOrOutput(ctx, "INFO",
-									"Loaded snapshot of synopsis: [ Version : v" + vLoaded
-											+ " --> UID: " + rq.getUID()
-											+ " | DatasetKey:" + rq.getKey()
-											+ " | Type: BloomFilter ]", rq);
+							logOrOutput(ctx, "INFO", "Loaded snapshot of synopsis: Version : v" + vLoaded + " UID: " + rq.getUID() + " Type: BloomFiter ", rq);
 							break;
 						}
 					}
@@ -281,7 +325,7 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 
 				} catch(Exception e){
 					e.printStackTrace();
-					logOrOutput(ctx, "ERROR", "Failed to load Bloomfilter snapshot: " + e.getMessage(), rq);
+					logOrOutput(ctx, "ERROR", "Failed to load BloomFilter snapshot: " + e.getMessage(), rq);
 				}
 			}
 			// AMSsynopsis
@@ -290,8 +334,12 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					AMSsynopsis loadedObj = null;
 					if(rq.getRequestID() == 201) {
 						loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), AMSsynopsis.class, Integer.valueOf(rq.getParam()[0]));
+						loadedObj.setParallelism(rq.getNoOfP());
+						loadedObj.setKey(rq.getDataSetkey());
 					} else {
 						loadedObj = StorageManager.loadSynopsisLatestSnapshot(rq.getKey(), rq.getUID(), AMSsynopsis.class);
+						loadedObj.setParallelism(rq.getNoOfP());
+						loadedObj.setKey(rq.getDataSetkey());
 					}
 
 					for (int i=0; i<Synopses.size(); i++) {
@@ -304,11 +352,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 									? String.valueOf(StorageManager.getSynopsisLatestVersionNumber(rq.getUID(), rq.getKey()))
 									: rq.getParam()[0];
 
-							logOrOutput(ctx, "INFO",
-									"Loaded snapshot of synopsis: [ Version : v" + vLoaded
-											+ " --> UID: " + rq.getUID()
-											+ " | DatasetKey:" + rq.getKey()
-											+ " | Type: AMS Sketch ]", rq);
+							logOrOutput(ctx, "INFO", "Loaded snapshot of synopsis: Version : v" + vLoaded + " UID: " + rq.getUID() + " Type: AMSSynopsis ", rq);
+
 							break;
 						}
 					}
@@ -316,7 +361,7 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 
 				} catch(Exception e){
 					e.printStackTrace();
-					logOrOutput(ctx, "ERROR", "Failed to load AMSsynopsis snapshot: " + e.getMessage(), rq);
+					logOrOutput(ctx, "ERROR", "Failed to load AMSSynopsis snapshot: " + e.getMessage(), rq);
 				}
 			}
 		}
@@ -330,12 +375,11 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 				try {
 					CountMin loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), CountMin.class, Integer.valueOf(rq.getParam()[0]));
 					loadedObj.setSynopsisID(Integer.valueOf(rq.getParam()[1]));
+					loadedObj.setParallelism(rq.getNoOfP());
+					loadedObj.setKey(rq.getDataSetkey());
 					Synopses.add(loadedObj);
 					logOrOutput(ctx, "INFO",
-							"Loaded snapshot of synopsis into new instance: [ Version : v" + rq.getParam()[0]
-									+ " | New UID: " + rq.getParam()[1]
-									+ " | DatasetKey:" + rq.getKey()
-									+ " | Type: CountMin ]", rq);
+							"Loaded snapshot of synopsis: UID: "+rq.getUID()+" into new instance:  Version : v" + rq.getParam()[0] +" to Synopsis New UID: " + rq.getParam()[1] +" of type: CountMin", rq);
 					M_Synopses.put(rq.getKey(), Synopses);
 				}catch(Exception e){
 					e.printStackTrace();
@@ -346,12 +390,11 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 				try {
 					Bloomfilter loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), Bloomfilter.class, Integer.valueOf(rq.getParam()[0]));
 					loadedObj.setSynopsisID(Integer.valueOf(rq.getParam()[1]));
+					loadedObj.setParallelism(rq.getNoOfP());
+					loadedObj.setKey(rq.getDataSetkey());
 					Synopses.add(loadedObj);
 					logOrOutput(ctx, "INFO",
-							"Loaded snapshot of synopsis into new instance: [ Version : v" + rq.getParam()[0]
-									+ " | New UID: " + rq.getParam()[1]
-									+ " | DatasetKey:" + rq.getKey()
-									+ " | Type: BloomFilter ]", rq);
+							"Loaded snapshot of synopsis: UID: "+rq.getUID()+" into new instance:  Version : v" + rq.getParam()[0] +" to Synopsis New UID: " + rq.getParam()[1] +" of type: BloomFilter", rq);
 					M_Synopses.put(rq.getKey(), Synopses);
 				}catch(Exception e){
 					e.printStackTrace();
@@ -362,76 +405,45 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 				try {
 					AMSsynopsis loadedObj = StorageManager.loadSynopsisSnapshot(rq.getKey(), rq.getUID(), AMSsynopsis.class, Integer.valueOf(rq.getParam()[0]));
 					loadedObj.setSynopsisID(Integer.valueOf(rq.getParam()[1]));
+					loadedObj.setParallelism(rq.getNoOfP());
+					loadedObj.setKey(rq.getDataSetkey());
 					Synopses.add(loadedObj);
 					logOrOutput(ctx, "INFO",
-							"Loaded snapshot of synopsis into new instance: [ Version : v" + rq.getParam()[0]
-									+ " | New UID: " + rq.getParam()[1]
-									+ " | DatasetKey:" + rq.getKey()
-									+ " | Type: AMS Sketch ]", rq);
+							"Loaded snapshot of synopsis: UID: "+rq.getUID()+" into new instance:  Version : v" + rq.getParam()[0] +" to Synopsis New UID: " + rq.getParam()[1] +" of type: AMSSynopsis", rq);
 					M_Synopses.put(rq.getKey(), Synopses);
 				}catch(Exception e){
 					e.printStackTrace();
-					logOrOutput(ctx, "ERROR", "Failed to load new AMSsynopsis instance: " + e.getMessage(), rq);
+					logOrOutput(ctx, "ERROR", "Failed to load new AMSSynopsis instance: " + e.getMessage(), rq);
 				}
-			}
-		}
-		else if(rq.getRequestID() == 1111){
-			// Debug request that prints out the state of a running synopsis
-			if (Synopses != null) {
-				try {
-					for (Synopsis s : Synopses) {
-						if(s.getSynopsisID()==rq.getUID()){
-							if(s instanceof AMSsynopsis){
-								String debugMsg = "[ Synopsis type: "+s.getClass().getSimpleName()
-										+" | UID: "+ s.getSynopsisID()
-										+ " | DatasetKey: "+rq.getKey()
-										+ " ]\n--> Synopsis State:\n" + ((AMSsynopsis) s).toJson();
-								logOrOutput(ctx, "DEBUG", debugMsg, rq);
-							}
-						}
-					}
-				} catch (Exception e){
-					e.printStackTrace();
-					logOrOutput(ctx, "ERROR", "Error in debug request: "+ e.getMessage(), rq);
-				}
-			} else {
-				logOrOutput(ctx, "WARN", "No synopses found for key " + rq.getKey() + " in debug request.", rq);
 			}
 		}
 		else if (rq.getRequestID() == 1000) {
 			// Show metadata for all maintained synopses
 			try {
+
 				Map<String, List<Map<String, Object>>> groupedSynopses = new HashMap<>();
+
 
 				for (String datasetKey : M_Synopses.keySet()) {
 					List<Map<String, Object>> synopsisList = new ArrayList<>();
+
 					for (Synopsis s : M_Synopses.get(datasetKey)) {
 						Map<String, Object> synopsisMap = new HashMap<>();
 						synopsisMap.put("id", s.getSynopsisID());
-						synopsisMap.put("key", datasetKey);
 						synopsisMap.put("type", s.getClass().getSimpleName());
-						synopsisMap.put("stream", rq.getStreamID());
+						synopsisMap.put("parallelism", s.getParallelism());
+						synopsisMap.put("key", maskKey(s.getKey()));
 						synopsisList.add(synopsisMap);
 					}
-					groupedSynopses.put(datasetKey, synopsisList);
+					groupedSynopses.merge(maskKey(datasetKey), synopsisList, (oldList, newList) -> {
+						oldList.addAll(newList); // Merge new list into existing one
+						return oldList; // Return the updated list
+					});
 				}
 
-				Map<String, Object> outputMap = new HashMap<>();
-				outputMap.put("synopses", groupedSynopses);
 
-				// Emitting a "RESPONSE" type message with the metadata
-				Message responseMsg = new Message(
-						MessageType.RESPONSE,
-						outputMap,
-						rq.getUID() + "_" + rq.getKey(),
-						rq.getRequestID()
-				);
-				ctx.output(logOutputTag, responseMsg);
+				logOrOutput(ctx, "INFO", groupedSynopses, rq);
 
-				// Optionally print
-				if (debugFlag) {
-					System.out.println("[INFO] requestID=1000 => synopses metadata: " + outputMap.toString());
-				}
 			} catch (Exception e) {
 				e.printStackTrace();
 				logOrOutput(ctx, "ERROR", "Metadata request failed: " + e.getMessage(), rq);
@@ -453,11 +465,11 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// CountMin
 					if (rq.getParam().length > 4) {
 						newSketch = new CountMin(rq.getUID(), rq.getParam());
-						logOrOutput(ctx, "INFO", "Maintaining new CountMin synopsis [Type ID: "
-								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
-								+"] upon request: " + rq.getUID(), rq);
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
+						logOrOutput(ctx, "INFO", "Maintaining new CountMin synopsis with UID: "+rq.getUID() + " and params: "+Arrays.toString(rq.getParam()), rq);
 					} else {
-						logOrOutput(ctx, "ERROR", "Insufficient parameters for CountMin. Not adding new instance.", rq);
+						logOrOutput(ctx, "ERROR", "Insufficient parameters for CountMin. Will not add new Synopsis.", rq);
 					}
 					Synopses.add(newSketch);
 					break;
@@ -465,21 +477,21 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// BloomFilter
 					if (rq.getParam().length > 3) {
 						newSketch = new Bloomfilter(rq.getUID(), rq.getParam());
-						logOrOutput(ctx, "INFO", "Maintaining new BloomFilter synopsis [Type ID: "
-								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
-								+"] upon request: " + rq.getUID(), rq);
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
+						logOrOutput(ctx, "INFO", "Maintaining new BloomFilter synopsis with UID: "+rq.getUID() + " and params: "+Arrays.toString(rq.getParam()), rq);
 					} else {
-						logOrOutput(ctx, "ERROR", "Insufficient parameters for BloomFilter. Not adding new instance.", rq);
+						logOrOutput(ctx, "ERROR", "Insufficient parameters for BloomFilter. Will not add new Synopsis.", rq);
 					}
 					Synopses.add(newSketch);
 					break;
 				case 3:
-					// AMSsynopsis
+					// AMSSynopsis
 					if (rq.getParam().length > 3){
 						newSketch = new AMSsynopsis(rq.getUID(), rq.getParam());
-						logOrOutput(ctx, "INFO", "Maintaining new AMSketch synopsis [Type ID: "
-								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
-								+"] upon request: " + rq.getUID(), rq);
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
+						logOrOutput(ctx, "INFO", "Maintaining new AMSSketch synopsis with UID: "+rq.getUID() + " and params: "+Arrays.toString(rq.getParam()), rq);
 					} else {
 						logOrOutput(ctx, "ERROR", "Insufficient parameters for AMSketch. Not adding new instance.", rq);
 					}
@@ -489,6 +501,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// DFT
 					if (rq.getParam().length > 3){
 						newSketch = new MultySynopsisDFT(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new DFT synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -498,14 +512,15 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					Synopses.add(newSketch);
 					break;
 				case 5:
-					// LSH - undone, replaced with BloomFilter
-					newSketch = new Bloomfilter(rq.getUID(), rq.getParam());
-					Synopses.add(newSketch);
+					//lsh
+					//notimplemented
 					break;
 				case 6:
 					// lib.Coresets
 					if (rq.getParam().length > 10 ){
 						newSketch = new FinJoinCoresets(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new Coresets synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -518,6 +533,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// HyperLogLog
 					if (rq.getParam().length > 2){
 						newSketch = new HyperLogLogSynopsis(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new HyperLogLog synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -530,6 +547,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// StickySampling
 					if (rq.getParam().length > 4) {
 						newSketch = new StickySamplingSynopsis(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new StickySampling synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -542,6 +561,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// LossyCounting
 					if (rq.getParam().length > 2){
 						newSketch = new LossyCountingSynopsis(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new LossyCounting synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -554,6 +575,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// ChainSampler
 					if (rq.getParam().length > 3){
 						newSketch = new ChainSamplerSynopsis(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new ChainSampler synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -566,6 +589,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// GKsynopsis
 					if (rq.getParam().length > 3){
 						newSketch = new GKsynopsis(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new GK synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -578,6 +603,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// Top-K
 					if (rq.getParam().length > 3){
 						newSketch = new SynopsisTopK(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new Top-K synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -590,6 +617,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// windowQuantiles
 					if (rq.getParam().length > 3){
 						newSketch = new windowQuantiles(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 						logOrOutput(ctx, "INFO", "Maintaining new WindowQuantiles synopsis [Type ID: "
 								+ rq.getSynopsisID()+" | StreamID: "+rq.getStreamID()+" | DatasetKey: "+rq.getKey()
 								+"] upon request: " + rq.getUID(), rq);
@@ -622,6 +651,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// FINJOIN
 					if (rq.getParam().length > 3) {
 						newSketch = new FinJoinSynopsis(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 					}
 					Synopses.add(newSketch);
 					logOrOutput(ctx, "INFO", "Maintaining new FinJoinSynopsis with ID 26", rq);
@@ -630,9 +661,13 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// COUNT
 					if (rq.getParam().length > 3) {
 						newSketch = new Counters(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 					} else {
 						String[] _tmp = {"0", "0", "10", "100", "8", "3"};
 						newSketch = new Counters(rq.getUID(), _tmp);
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 					}
 					Synopses.add(newSketch);
 					logOrOutput(ctx, "INFO", "Maintaining new Counters with ID 27", rq);
@@ -641,6 +676,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// Window LSH
 					if (rq.getParam().length > 3) {
 						newSketch = new WLSHSynopses(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 					}
 					Synopses.add(newSketch);
 					logOrOutput(ctx, "INFO", "Maintaining new WLSHSynopses with ID 28", rq);
@@ -649,6 +686,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// PastDFT
 					if (rq.getParam().length > 3) {
 						newSketch = new PastDFTSynopsis(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 					}
 					Synopses.add(newSketch);
 					logOrOutput(ctx, "INFO", "Maintaining new PastDFTSynopsis with ID 29", rq);
@@ -657,6 +696,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// SpatialSketch
 					if (rq.getParam().length > 4) {
 						newSketch = new SpatialSketch(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 					}
 					Synopses.add(newSketch);
 					logOrOutput(ctx, "INFO", "Maintaining new SpatialSketch with ID 30", rq);
@@ -665,6 +706,8 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					// OmniSketch
 					if (rq.getParam().length > 6) {
 						newSketch = new OmniSketch(rq.getUID(), rq.getParam());
+						newSketch.setParallelism(rq.getNoOfP());
+						newSketch.setKey(rq.getDataSetkey());
 					}
 					Synopses.add(newSketch);
 					logOrOutput(ctx, "INFO", "Maintaining new OmniSketch with ID 31", rq);
@@ -748,12 +791,10 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 					Synopsis syn = Synopses.get(i);
 					if (rq.getUID() == syn.getSynopsisID()) {
 						// remove (2)
-						if (rq.getRequestID() % 10 == 2) {
+						if (rq.getRequestID() == 2) {
 							Synopses.remove(syn);
 							M_Synopses.put(rq.getKey(), Synopses);
-							logOrOutput(ctx, "INFO", "Deleted synopsis of Type "+rq.getSynopsisID()+" with UID: "
-									+rq.getUID()+" for DatasetKey:"+rq.getKey()
-									+" and StreamID: "+rq.getStreamID(), rq);
+							logOrOutput(ctx, "INFO", "Deleted synopsis of Type with UID: " +rq.getUID() + " and Type: " +rq.getSynopsisID(), rq);
 							break;
 						}
 						// estimate (3 or 6)
@@ -791,6 +832,9 @@ public class SDECoProcessFunction extends CoProcessFunction<Datapoint, Request, 
 										collector.collect(e);
 									}
 								} else {
+									if(rq.getExternalUID()!=null){
+										e.setRelatedRequestIdentifier(rq.getExternalUID());
+									}
 									collector.collect(e);
 								}
 							}
