@@ -1,1 +1,1 @@
-This is the Synopsis Data Engine with persistent storage capabilities and interoperability enhancements
+This is the Synopsis Data Engine (SDE) with persistent storage capabilities and interoperability enhancements
